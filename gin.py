@@ -24,6 +24,7 @@ import numpy as np
 import os.path as osp
 
 from attacker.greedy import Greedy
+from wgin_conv import WGINConv
 
 # Firstly define the model, from GraphCL
 class GIN(torch.nn.Module):
@@ -50,20 +51,20 @@ class GIN(torch.nn.Module):
                 mlp = Sequential(Linear(dim, dim), ReLU(), Linear(dim, dim))
             else: # 第一层在这里
                 mlp = Sequential(Linear(num_features, dim), ReLU(), Linear(dim, dim))
-            conv = GINConv(mlp)
+            conv = WGINConv(mlp)
             bn = torch.nn.BatchNorm1d(dim)
 
             self.convs.append(conv)
             self.bns.append(bn)
 
-    def forward(self, x, edge_index, batch):
+    def forward(self, x, edge_index, batch, edge_weight=None):
         if x is None:
             x = torch.ones((batch.shape[0], 1)).to(device)
 
         xs = []
         for i in range(self.num_gc_layers):
 
-            x = F.relu(self.convs[i](x, edge_index))
+            x = F.relu(self.convs[i](x, edge_index, edge_weight))
             x = self.bns[i](x)
             F.dropout(x, p=self.dropout, training=self.training)
             xs.append(x) # xs is the node representation
@@ -90,9 +91,11 @@ class GIN(torch.nn.Module):
                 # data = data[0]
                 data.to(device)
                 x, edge_index, batch = data.x, data.edge_index, data.batch
+                edge_weight = data.edge_weight if hasattr(data, 'edge_weight') else None
+
                 if x is None:
                     x = torch.ones((batch.shape[0],1)).to(device)
-                x_g, _ = self.forward(x, edge_index, batch) # 只取用global embedding
+                x_g, _ = self.forward(x, edge_index, batch, edge_weight) # 只取用global embedding
 
                 ret.append(x_g)
                 y.append(data.y)
@@ -159,8 +162,8 @@ class GCL_classifier(torch.nn.Module):
         self.encoder = encoder
         self.classifier = classifier
 
-    def forward(self, x, edge_index, batch):
-        x_g, _ = self.encoder(x, edge_index, batch)
+    def forward(self, x, edge_index, batch, edge_weight=None):
+        x_g, _ = self.encoder(x, edge_index, batch, edge_weight)
         logits = self.classifier(x_g)
         return logits
 
@@ -218,7 +221,7 @@ def eval_encoder(model, dataloader_eval, device='cuda'):
 
 
 if __name__ == '__main__':
-    dataset_name = 'REDDIT-MULTI-5K'
+    dataset_name = 'PROTEINS'
     find_hyperparams = False
 
     # Hyperparams
@@ -292,7 +295,7 @@ if __name__ == '__main__':
     if find_hyperparams==True:
         lr, num_layer, hidden_dim, dropout, batch_size = best_hyperparams.values()
     else:
-        best_hyperparams = {'lr': 0.01, 'num_layer': 5, 'hidden_dim': 64, 'dropout': 0.5, 'batch_size': 128}
+        best_hyperparams = {'lr': 0.01, 'num_layer': 5, 'hidden_dim': 32, 'dropout': 0.5, 'batch_size': 128}
         lr, num_layer, hidden_dim, dropout, batch_size = best_hyperparams.values()
     runs = 5
 

@@ -201,16 +201,17 @@ def train(encoder_model, contrast_model, dataloader, optimizer):
         torch.cuda.empty_cache() # Added by Zinuo to try to save the memory
     return epoch_loss
 
-def train_classifier(x, y, epoches=100, lr=0.01, device='cuda'):
+def train_classifier(x, y, num_classse=2, epoches=100, lr=0.01, device='cuda'):
     '''
     Params:
     x: the embeddings
     y: the labels
+    num_classse: the dimension for the output layer
     epoches: the epoches to train the classifier
     '''
     x.to(device)
     y.to(device)
-    classifier = LogReg(x.shape[1], y.shape[0]).to(device)
+    classifier = LogReg(x.shape[1], num_classse).to(device)
     xent = CrossEntropyLoss()
     opt = torch.optim.Adam(classifier.parameters(), lr=lr, weight_decay=0.0)
     # classifier.cuda()
@@ -259,7 +260,7 @@ def eval_encoder(model, dataloader_eval, device='cuda'):
 #====================================================================
 
 if __name__ == '__main__':
-    dataset_name = 'REDDIT-MULTI-5K'
+    dataset_name = 'PROTEINS'
     train_multiple_classifiers = False
 
     # Hyperparams
@@ -273,6 +274,7 @@ if __name__ == '__main__':
     dataset = TUDataset(path, name=dataset_name)
     dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
     num_features = max(dataset.num_features, 1)
+    num_classes = dataset.num_classes
     if dataset.num_features==0 :
         print("No node feature, paddings of 1 will be used in GIN when forwarding.")
 
@@ -319,7 +321,7 @@ if __name__ == '__main__':
         with tqdm(total=num_calssifier, desc='(E)') as pbar:
             for _ in range(num_calssifier): 
                 # Train the downstream classifier
-                classifier = train_classifier(embedding_global, y)
+                classifier = train_classifier(embedding_global, y, num_classse=num_classes)
 
                 # Put encoder and classifier together, drop the augmentor
                 encoder_classifier = GCL_classifier(encoder_model.encoder, classifier)
@@ -341,7 +343,7 @@ if __name__ == '__main__':
         accs_adv = []
         for _ in range(runs):
             # ====== Train one classifier and do attack =====================================
-            classifier = train_classifier(embedding_global, y)
+            classifier = train_classifier(embedding_global, y, num_classse=num_classse)
 
             # Put encoder and classifier together, drop the augmentor
             encoder_classifier = GCL_classifier(encoder_model.encoder, classifier)
