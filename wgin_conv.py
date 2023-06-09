@@ -39,7 +39,6 @@ class WGINConv(MessagePassing):
 		if x_r is not None:
 			out += (1 + self.eps) * x_r
 
-		print('Shape of out: ', out.shape)
 		return self.nn(out)
 
 	def message(self, x_j: Tensor, edge_weight) -> Tensor:
