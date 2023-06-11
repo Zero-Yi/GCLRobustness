@@ -221,7 +221,7 @@ def eval_encoder(model, dataloader_eval, device='cuda'):
 
 
 if __name__ == '__main__':
-    dataset_name = 'PROTEINS'
+    dataset_name = 'NCI1'
     find_hyperparams = False
 
     # Hyperparams
@@ -295,7 +295,7 @@ if __name__ == '__main__':
     if find_hyperparams==True:
         lr, num_layer, hidden_dim, dropout, batch_size = best_hyperparams.values()
     else:
-        best_hyperparams = {'lr': 0.01, 'num_layer': 5, 'hidden_dim': 32, 'dropout': 0.5, 'batch_size': 128}
+        best_hyperparams = {'lr': 0.01, 'num_layer': 5, 'hidden_dim': 32, 'dropout': 0, 'batch_size': 128}
         lr, num_layer, hidden_dim, dropout, batch_size = best_hyperparams.values()
     runs = 5
 
@@ -303,7 +303,8 @@ if __name__ == '__main__':
     dataloader_eval = DataLoader(eval_set, batch_size=128, shuffle=False) # Do not shuffle the evaluation set to make it reproduceable
 
     accs_clean = []
-    accs_adv = []
+    accs_adv_PGD = []
+    accs_adv_greedy = []
     for _ in range(runs):
 
         # The graph neural network backbone model to use
@@ -324,21 +325,38 @@ if __name__ == '__main__':
         acc_clean, mask = eval_encoder(model, dataloader_eval)
 
         # Instantiate an attacker and attack the victim model
-        attacker = Greedy(pn=0.05)
-        dataloader_eval_adv = attacker.attack(eval_set, mask)
+        # ++++++++++ Greedy ++++++++++++++++
+        Greedyattacker = Greedy(pn=0.05)
+        dataloader_eval_adv_greedy = Greedyattacker.attack(eval_set, mask)
 
         # Accuracy on the adversarial data only
-        acc_adv_only, _ = eval_encoder(model, dataloader_eval_adv)
+        acc_adv_only_greedy, _ = eval_encoder(model, dataloader_eval_adv_greedy)
 
         # Overall adversarial accuracy
-        acc_adv = acc_clean * acc_adv_only # T/all * Tadv/T = Tadv/all
+        acc_adv_greedy = acc_clean * acc_adv_only_greedy # T/all * Tadv/T = Tadv/all
+        # ++++++++++ Greedy over ++++++++++++++++
 
-        print(f'(A): clean accuracy={acc_clean:.4f}, adversarial accuracy={acc_adv:.4f}')
+        # ++++++++++ PGD ++++++++++++++++
+        PGDattacker = PGDAttack(surrogate=model, device=device)
+        dataloader_eval_adv_PGD = PGDattacker.attack(eval_set, mask, attack_ratio=0.05)
+
+        # Accuracy on the adversarial data only
+        acc_adv_only_PGD, _ = eval_encoder(model, dataloader_eval_adv_PGD)
+
+        # Overall adversarial accuracy
+        acc_adv_PGD = acc_clean * acc_adv_only_PGD # T/all * Tadv/T = Tadv/all
+        # ++++++++++ PGD over ++++++++++++++++
+
+        print(f'(A): clean accuracy={acc_clean:.4f}, greedy adversarial accuracy={acc_adv_greedy:.4f}, PGD adversarial accuracy={acc_adv_PGD:.4f}')
         # ====== Train one classifier =====================================
         accs_clean.append(acc_clean)
-        accs_adv.append(acc_adv)
+        accs_adv_greedy.append(acc_adv_greedy)
+        accs_adv_PGD.append(acc_adv_PGD)
 
     accs_clean = torch.stack(accs_clean)
-    accs_adv = torch.stack(accs_adv)
-    print(f'(A): average clean accuracy={accs_clean.mean():.4f}, std={accs_clean.std():.4f}')
-    print(f'(A): average adversarial accuracy={accs_adv.mean():.4f}, std={accs_adv.std():.4f}')
+    accs_adv_greedy = torch.stack(accs_adv_greedy)
+    accs_adv_PGD = torch.stack(accs_adv_PGD)
+    print(f'(A): clean average accuracy={accs_clean.mean():.4f}, std={accs_clean.std():.4f}')
+    print(f'(A): greedy adversarial average accuracy={accs_adv_greedy.mean():.4f}, std={accs_adv_greedy.std():.4f}')
+    print(f'(A): PGD adversarial average accuracy={accs_adv_PGD.mean():.4f}, std={accs_adv_PGD.std():.4f}')
+

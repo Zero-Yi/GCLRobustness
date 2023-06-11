@@ -22,17 +22,16 @@ import numpy as np
 import os.path as osp
 
 from attacker.greedy import Greedy
+from attacker.PGD import PGDAttack
+from wgin_conv import WGINConv
 
 # Firstly define the model, from GraphCL
 class GIN(torch.nn.Module):
-    def __init__(self, num_features, dim, num_gc_layers): # num_feature: node feature维度，dim: node embedding维度
+    def __init__(self, num_features, dim, num_gc_layers, dropout=0): # num_feature: node feature维度，dim: node embedding维度
         super(GIN, self).__init__()
 
-        # num_features = dataset.num_features
-        # dim = 32
         self.num_gc_layers = num_gc_layers
 
-        # self.nns = []
         self.convs = torch.nn.ModuleList()
         self.bns = torch.nn.ModuleList()
 
@@ -43,27 +42,30 @@ class GIN(torch.nn.Module):
             nn.Linear(project_dim, project_dim)
             )
 
+        self.dropout = dropout
+
         for i in range(num_gc_layers):
 
             if i:
                 mlp = Sequential(Linear(dim, dim), ReLU(), Linear(dim, dim))
             else: # 第一层在这里
                 mlp = Sequential(Linear(num_features, dim), ReLU(), Linear(dim, dim))
-            conv = GINConv(mlp)
+            conv = WGINConv(mlp)
             bn = torch.nn.BatchNorm1d(dim)
 
             self.convs.append(conv)
             self.bns.append(bn)
 
-    def forward(self, x, edge_index, batch):
+    def forward(self, x, edge_index, batch, edge_weight=None):
         if x is None:
             x = torch.ones((batch.shape[0], 1)).to(device)
 
         xs = []
         for i in range(self.num_gc_layers):
 
-            x = F.relu(self.convs[i](x, edge_index))
+            x = F.relu(self.convs[i](x, edge_index, edge_weight))
             x = self.bns[i](x)
+            F.dropout(x, p=self.dropout, training=self.training)
             xs.append(x) # xs is the node representation
             # if i == 2:
                 # feature_map = x2
@@ -88,9 +90,11 @@ class GIN(torch.nn.Module):
                 # data = data[0]
                 data.to(device)
                 x, edge_index, batch = data.x, data.edge_index, data.batch
+                edge_weight = data.edge_weight if hasattr(data, 'edge_weight') else None
+
                 if x is None:
                     x = torch.ones((batch.shape[0],1)).to(device)
-                x_g, _ = self.forward(x, edge_index, batch) # 只取用global embedding
+                x_g, _ = self.forward(x, edge_index, batch, edge_weight) # 只取用global embedding
 
                 ret.append(x_g)
                 y.append(data.y)
@@ -173,11 +177,10 @@ class GCL_classifier(torch.nn.Module):
         self.encoder = encoder
         self.classifier = classifier
 
-    def forward(self, x, edge_index, batch):
-        x_g, _ = self.encoder(x, edge_index, batch)
+    def forward(self, x, edge_index, batch, edge_weight=None):
+        x_g, _ = self.encoder(x, edge_index, batch, edge_weight)
         logits = self.classifier(x_g)
         return logits
-
 
 # Training in every epoch
 def train(encoder_model, contrast_model, dataloader, optimizer):
@@ -260,7 +263,7 @@ def eval_encoder(model, dataloader_eval, device='cuda'):
 #====================================================================
 
 if __name__ == '__main__':
-    dataset_name = 'PROTEINS'
+    dataset_name = 'REDDIT-MULTI-5K'
     train_multiple_classifiers = False
 
     # Hyperparams
@@ -289,7 +292,6 @@ if __name__ == '__main__':
     encoder_model = Encoder(encoder=gconv, augmentor=(aug1, aug2)).to(device)
     contrast_model = DualBranchContrast(loss=L.InfoNCE(tau=0.2), mode='G2G').to(device)
     optimizer = Adam(encoder_model.parameters(), lr=lr)
-
 
     # Train the encoder with full dataset without labels using contrastive learning
     with tqdm(total=20, desc='(T)') as pbar:
@@ -340,10 +342,11 @@ if __name__ == '__main__':
         runs = 5
 
         accs_clean = []
-        accs_adv = []
+        accs_adv_PGD = []
+        accs_adv_greedy = []
         for _ in range(runs):
             # ====== Train one classifier and do attack =====================================
-            classifier = train_classifier(embedding_global, y, num_classse=num_classse)
+            classifier = train_classifier(embedding_global, y, num_classse=num_classes)
 
             # Put encoder and classifier together, drop the augmentor
             encoder_classifier = GCL_classifier(encoder_model.encoder, classifier)
@@ -352,22 +355,38 @@ if __name__ == '__main__':
             acc_clean, mask = eval_encoder(encoder_classifier, dataloader_eval)
 
             # Instantiate an attacker and attack the victim model
-            attacker = Greedy(pn=0.05)
-            dataloader_eval_adv = attacker.attack(eval_set, mask)
+            # ++++++++++ Greedy ++++++++++++++++
+            Greedyattacker = Greedy(pn=0.05)
+            dataloader_eval_adv_greedy = Greedyattacker.attack(eval_set, mask)
 
             # Accuracy on the adversarial data only
-            acc_adv_only, _ = eval_encoder(encoder_classifier, dataloader_eval_adv)
+            acc_adv_only_greedy, _ = eval_encoder(encoder_classifier, dataloader_eval_adv_greedy)
 
             # Overall adversarial accuracy
-            acc_adv = acc_clean * acc_adv_only # T/all * Tadv/T = Tadv/all
+            acc_adv_greedy = acc_clean * acc_adv_only_greedy # T/all * Tadv/T = Tadv/all
+            # ++++++++++ Greedy over ++++++++++++++++
 
-            print(f'(A): clean accuracy={acc_clean:.4f}, adversarial accuracy={acc_adv:.4f}')
+            # ++++++++++ PGD ++++++++++++++++
+            PGDattacker = PGDAttack(surrogate=encoder_classifier, device=device)
+            dataloader_eval_adv_PGD = PGDattacker.attack(eval_set, mask)
+
+            # Accuracy on the adversarial data only
+            acc_adv_only_PGD, _ = eval_encoder(encoder_classifier, dataloader_eval_adv_PGD)
+
+            # Overall adversarial accuracy
+            acc_adv_PGD = acc_clean * acc_adv_only_PGD # T/all * Tadv/T = Tadv/all
+            # ++++++++++ PGD over ++++++++++++++++
+
+            print(f'(A): clean accuracy={acc_clean:.4f}, greedy adversarial accuracy={acc_adv_greedy:.4f}, PGD adversarial accuracy={acc_adv_PGD:.4f}')
             # ====== Train one classifier =====================================
             accs_clean.append(acc_clean)
-            accs_adv.append(acc_adv)
+            accs_adv_greedy.append(acc_adv_greedy)
+            accs_adv_PGD.append(acc_adv_PGD)
 
         accs_clean = torch.stack(accs_clean)
-        accs_adv = torch.stack(accs_adv)
+        accs_adv_greedy = torch.stack(accs_adv_greedy)
+        accs_adv_PGD = torch.stack(accs_adv_PGD)
         print(f'(A): clean average accuracy={accs_clean.mean():.4f}, std={accs_clean.std():.4f}')
-        print(f'(A): adversarial average accuracy={accs_adv.mean():.4f}, std={accs_adv.std():.4f}')
+        print(f'(A): greedy adversarial average accuracy={accs_adv_greedy.mean():.4f}, std={accs_adv_greedy.std():.4f}')
+        print(f'(A): PGD adversarial average accuracy={accs_adv_PGD.mean():.4f}, std={accs_adv_PGD.std():.4f}')
 
