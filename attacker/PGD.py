@@ -32,9 +32,11 @@ class PGDAttack():
         attack loss type, chosen from ['CE', 'CW']
     device: str
         'cpu' or 'cuda'
+    epsilon:
+        tolerance during bisection
     """
 
-    def __init__(self, surrogate=None, loss_type='CE', device='cuda'):
+    def __init__(self, surrogate=None, loss_type='CE', device='cuda', epsilon=1e-5):
 
         self.modified_adj = None
         self.original_adj = None
@@ -46,6 +48,7 @@ class PGDAttack():
 
         self.surrogate = surrogate
         self.device = device
+        self.epsilon = epsilon
 
     def attack(self, eval_set, mask=None, batch_size=128, attack_ratio=0.05):
         '''
@@ -133,6 +136,9 @@ class PGDAttack():
         modified_weight_bool = modified_weight.to(torch.bool)
         adv_edge_index = fc_edge_index[:, modified_weight_bool]
 
+        del self.original_adj, self.adj_changes, self.direction # Added by Zinuo to try to save the memory
+        torch.cuda.empty_cache() # Added by Zinuo to try to save the memory
+
         return fc_edge_index, modified_weight, adv_edge_index
 
     def preprocess(self, x, edge_index):
@@ -198,7 +204,7 @@ class PGDAttack():
         if torch.clamp(self.adj_changes, 0, 1).sum() > n_perturbations:
             left = (self.adj_changes - 1).min()
             right = self.adj_changes.max()
-            miu = self.bisection(left, right, n_perturbations, epsilon=1e-5)
+            miu = self.bisection(left, right, n_perturbations)
             self.adj_changes.data.copy_(torch.clamp(self.adj_changes.data - miu, min=0, max=1))
         else:
             self.adj_changes.data.copy_(torch.clamp(self.adj_changes.data, min=0, max=1))
@@ -214,13 +220,13 @@ class PGDAttack():
 
         return modified_weight, modified_weight_adj
 
-    def bisection(self, a, b, n_perturbations, epsilon, max_iterations=5000):
+    def bisection(self, a, b, n_perturbations, max_iterations=5000):
         def func(x):
             return torch.clamp(self.adj_changes-x, 0, 1).sum() - n_perturbations
 
         miu = a
         iteration = 0
-        while ((b-a) >= epsilon and iteration<=max_iterations):
+        while ((b-a) >= self.epsilon and iteration<=max_iterations):
             iteration += 1
             miu = (a+b)/2
             # Check if middle point is root
