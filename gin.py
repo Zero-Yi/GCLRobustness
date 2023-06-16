@@ -14,21 +14,22 @@ from torch_geometric.nn import GINConv, global_add_pool, summary
 from torch_geometric.loader import DataLoader
 from torch_geometric.datasets import TUDataset
 
-from sklearn.model_selection import StratifiedKFold
-
 from tqdm import tqdm
 import itertools
 import warnings
 import sys
+from sklearn.model_selection import StratifiedKFold
 import numpy as np
 import os.path as osp
+import argparse
 
 from attacker.greedy import Greedy
+from attacker.PGD import PGDAttack
 from wgin_conv import WGINConv
 
 # Firstly define the model, from GraphCL
 class GIN(torch.nn.Module):
-    def __init__(self, num_features, dim, num_gc_layers, dropout=0): # num_feature: node feature维度，dim: node embedding维度
+    def __init__(self, num_features, dim, num_gc_layers, dropout=0, device='cuda'): # num_feature: node feature维度，dim: node embedding维度
         super(GIN, self).__init__()
 
         self.num_gc_layers = num_gc_layers
@@ -44,6 +45,7 @@ class GIN(torch.nn.Module):
             )
 
         self.dropout = dropout
+        self.device = device
 
         for i in range(num_gc_layers):
 
@@ -59,7 +61,7 @@ class GIN(torch.nn.Module):
 
     def forward(self, x, edge_index, batch, edge_weight=None):
         if x is None:
-            x = torch.ones((batch.shape[0], 1)).to(device)
+            x = torch.ones((batch.shape[0], 1)).to(self.device)
 
         xs = []
         for i in range(self.num_gc_layers):
@@ -82,19 +84,18 @@ class GIN(torch.nn.Module):
         ret: Tensor(num_graphs, global_embedding_features)
         y: Tensor(num_graphs,)
         '''
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         ret = []
         y = []
         with torch.no_grad():
             for data in loader:
 
                 # data = data[0]
-                data.to(device)
+                data.to(self.device)
                 x, edge_index, batch = data.x, data.edge_index, data.batch
                 edge_weight = data.edge_weight if hasattr(data, 'edge_weight') else None
 
                 if x is None:
-                    x = torch.ones((batch.shape[0],1)).to(device)
+                    x = torch.ones((batch.shape[0],1)).to(self.device)
                 x_g, _ = self.forward(x, edge_index, batch, edge_weight) # 只取用global embedding
 
                 ret.append(x_g)
@@ -110,15 +111,14 @@ class GIN(torch.nn.Module):
         ret: Tensor(num_nodes, node_embedding_features)
         y: Tensor(batch_size,)
         '''
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         ret = []
         y = []
         with torch.no_grad():
             for n, data in enumerate(loader):
-                data.to(device)
+                data.to(self.device)
                 x, edge_index, batch = data.x, data.edge_index, data.batch
                 if x is None:
-                    x = torch.ones((batch.shape[0],1)).to(device)
+                    x = torch.ones((batch.shape[0],1)).to(self.device)
                 x_g, x = self.forward(x, edge_index, batch)
                 x_g = x_g
                 ret = x
@@ -218,11 +218,23 @@ def eval_encoder(model, dataloader_eval, device='cuda'):
 
     return accuracy, correct_mask
 
-
+def arg_parse():
+    parser = argparse.ArgumentParser(description='gin.py')
+    parser.add_argument('--dataset', type=str, default='PROTEINS',
+                        help='Dataset')
+    parser.add_argument('--find_HP', type=bool, default=False,
+                        help='Whether use 10-Fold cross validation to find hyperparams first. Default: false')
+    parser.add_argument('--PGD', type=bool, default=False,
+                        help='Whether apply PGD attack. Default: false')
+    return parser.parse_args()
 
 if __name__ == '__main__':
-    dataset_name = 'NCI1'
-    find_hyperparams = False
+
+    args = arg_parse()
+
+    dataset_name = args.dataset
+    find_hyperparams = args.find_HP
+    do_PGD_attack = args.PGD
 
     # Hyperparams
     lrs = [0.01]
@@ -237,7 +249,8 @@ if __name__ == '__main__':
     dataset = TUDataset(path, name=dataset_name)
 
     # Split the dataset into two part for training classifier and final evaluation, train_val_set can be further divided into training and validation parts
-    train_val_set, eval_set = random_split(dataset, [0.9, 0.1])
+    generator = torch.Generator().manual_seed(42) # Fix the seed to do fair comparation
+    train_val_set, eval_set = random_split(dataset, [0.9, 0.1], generator=generator)
     
 
     num_features = max(dataset.num_features, 1)
@@ -253,7 +266,7 @@ if __name__ == '__main__':
             
             print(f'======The hyperparams: lr={lr}, num_layers={num_layer}, hidden_dim={hidden_dim}, dropout={dropout}, batch_size={batch_size}. On dataset:{dataset_name}======')
             # Define model
-            encoder_model = GIN(num_features=num_features, dim=hidden_dim, num_gc_layers=num_layer, dropout=dropout).to(device)
+            encoder_model = GIN(num_features=num_features, dim=hidden_dim, num_gc_layers=num_layer, dropout=dropout, device=device).to(device)
             classifier = LogReg(hidden_dim * num_layer, num_classes).to(device)
             model = GCL_classifier(encoder_model, classifier)
             optimizer = Adam(model.parameters(), lr=lr)
@@ -295,34 +308,42 @@ if __name__ == '__main__':
     if find_hyperparams==True:
         lr, num_layer, hidden_dim, dropout, batch_size = best_hyperparams.values()
     else:
-        best_hyperparams = {'lr': 0.01, 'num_layer': 5, 'hidden_dim': 32, 'dropout': 0, 'batch_size': 128}
+        best_hyperparams = {'lr': 0.01, 'num_layer': 5, 'hidden_dim': 64, 'dropout': 0, 'batch_size': 128}
         lr, num_layer, hidden_dim, dropout, batch_size = best_hyperparams.values()
-    runs = 5
+
+    print(f'=== On dataset: {dataset_name}, used hyperparams: {best_hyperparams}, whether activate PGD attack: {do_PGD_attack} ===')
+    
 
     dataloader_train = DataLoader(train_val_set, batch_size=batch_size, shuffle=True) # Use all train+val to train the final model
     dataloader_eval = DataLoader(eval_set, batch_size=128, shuffle=False) # Do not shuffle the evaluation set to make it reproduceable
+    
+    # The graph neural network backbone model to use
+    encoder_model = GIN(num_features=num_features, dim=hidden_dim, num_gc_layers=num_layer, dropout=dropout).to(device)
+    classifier = LogReg(hidden_dim * num_layer, num_classes).to(device)
+    model = GCL_classifier(encoder_model, classifier)
+    optimizer = Adam(model.parameters(), lr=lr)
+    scheduler = StepLR(optimizer, step_size=50, gamma=0.5)
+
+    # Train the encoder with full dataset without labels using contrastive learning
+    with tqdm(total=epochs, desc='(T)') as pbar:
+        for epoch in range(1, epochs + 1):
+            loss = train(model, dataloader_train, optimizer, scheduler)
+            pbar.set_postfix({'loss': loss})
+            pbar.update()
+    
+    model.eval() # Try to save memory
+    model.requires_grad_(False) # Try to save memory
+
+    runs = 5
 
     accs_clean = []
     accs_adv_PGD = []
     accs_adv_greedy = []
     for _ in range(runs):
 
-        # The graph neural network backbone model to use
-        encoder_model = GIN(num_features=num_features, dim=hidden_dim, num_gc_layers=num_layer, dropout=dropout).to(device)
-        classifier = LogReg(hidden_dim * num_layer, num_classes).to(device)
-        model = GCL_classifier(encoder_model, classifier)
-        optimizer = Adam(model.parameters(), lr=lr)
-        scheduler = StepLR(optimizer, step_size=50, gamma=0.5)
-
-        # Train the encoder with full dataset without labels using contrastive learning
-        with tqdm(total=epochs, desc='(T)') as pbar:
-            for epoch in range(1, epochs + 1):
-                loss = train(model, dataloader_train, optimizer, scheduler)
-                pbar.set_postfix({'loss': loss})
-                pbar.update()
-        
         # Accuracy on the clean evaluation data
         acc_clean, mask = eval_encoder(model, dataloader_eval)
+        accs_clean.append(acc_clean)
 
         # Instantiate an attacker and attack the victim model
         # ++++++++++ Greedy ++++++++++++++++
@@ -334,29 +355,37 @@ if __name__ == '__main__':
 
         # Overall adversarial accuracy
         acc_adv_greedy = acc_clean * acc_adv_only_greedy # T/all * Tadv/T = Tadv/all
+        accs_adv_greedy.append(acc_adv_greedy)
         # ++++++++++ Greedy over ++++++++++++++++
 
+        if do_PGD_attack == True:
         # ++++++++++ PGD ++++++++++++++++
-        PGDattacker = PGDAttack(surrogate=model, device=device)
-        dataloader_eval_adv_PGD = PGDattacker.attack(eval_set, mask, attack_ratio=0.05)
+            PGDattacker = PGDAttack(surrogate=model, device=device, epsilon=1e-4)
+            dataloader_eval_adv_PGD = PGDattacker.attack(eval_set, mask, attack_ratio=0.05)
 
-        # Accuracy on the adversarial data only
-        acc_adv_only_PGD, _ = eval_encoder(model, dataloader_eval_adv_PGD)
+            # Accuracy on the adversarial data only
+            acc_adv_only_PGD, _ = eval_encoder(model, dataloader_eval_adv_PGD)
 
-        # Overall adversarial accuracy
-        acc_adv_PGD = acc_clean * acc_adv_only_PGD # T/all * Tadv/T = Tadv/all
+            # Overall adversarial accuracy
+            acc_adv_PGD = acc_clean * acc_adv_only_PGD # T/all * Tadv/T = Tadv/all
+            accs_adv_PGD.append(acc_adv_PGD)
         # ++++++++++ PGD over ++++++++++++++++
 
-        print(f'(A): clean accuracy={acc_clean:.4f}, greedy adversarial accuracy={acc_adv_greedy:.4f}, PGD adversarial accuracy={acc_adv_PGD:.4f}')
-        # ====== Train one classifier =====================================
-        accs_clean.append(acc_clean)
-        accs_adv_greedy.append(acc_adv_greedy)
-        accs_adv_PGD.append(acc_adv_PGD)
+        if do_PGD_attack == True:
+            print(f'(A): clean accuracy={acc_clean:.4f}, greedy adversarial accuracy={acc_adv_greedy:.4f}, PGD adversarial accuracy={acc_adv_PGD:.4f}')
+            del Greedyattacker, PGDattacker # Try to save memory
+        else:
+            print(f'(A): clean accuracy={acc_clean:.4f}, greedy adversarial accuracy={acc_adv_greedy:.4f}')
+            del Greedyattacker # Try to save memory
 
+        torch.cuda.empty_cache() # Try to save memory
+        
+        
     accs_clean = torch.stack(accs_clean)
     accs_adv_greedy = torch.stack(accs_adv_greedy)
-    accs_adv_PGD = torch.stack(accs_adv_PGD)
     print(f'(A): clean average accuracy={accs_clean.mean():.4f}, std={accs_clean.std():.4f}')
     print(f'(A): greedy adversarial average accuracy={accs_adv_greedy.mean():.4f}, std={accs_adv_greedy.std():.4f}')
-    print(f'(A): PGD adversarial average accuracy={accs_adv_PGD.mean():.4f}, std={accs_adv_PGD.std():.4f}')
+    if do_PGD_attack == True:
+        accs_adv_PGD = torch.stack(accs_adv_PGD)
+        print(f'(A): PGD adversarial average accuracy={accs_adv_PGD.mean():.4f}, std={accs_adv_PGD.std():.4f}')
 
