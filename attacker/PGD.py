@@ -71,7 +71,7 @@ class PGDAttack():
             if one_graph.x is None:
                 num_nodes = one_graph.num_nodes
                 one_graph.x = torch.ones((num_nodes, 1), dtype=torch.float32, device=self.device)
-            n_perturbations = int(one_graph.x.shape[0] * attack_ratio)
+            n_perturbations = int(one_graph.edge_index.shape[1] * attack_ratio)
             # attacker = PGDAttack(surrogate=model, device=device)
             _, _, adv_edge_index = self.attack_one_graph(one_graph.x, one_graph.edge_index, one_graph.batch, one_graph.y, n_perturbations)
             new_graph = Data(edge_index=adv_edge_index, x=one_graph.x, y=one_graph.y)
