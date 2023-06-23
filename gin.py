@@ -26,6 +26,7 @@ import argparse
 from attacker.greedy import Greedy
 from attacker.PGD import PGDAttack
 from wgin_conv import WGINConv
+import os
 
 # Firstly define the model, from GraphCL
 class GIN(torch.nn.Module):
@@ -226,15 +227,19 @@ def arg_parse():
                         help='Whether use 10-Fold cross validation to find hyperparams first. Default: false')
     parser.add_argument('--PGD', type=bool, default=False,
                         help='Whether apply PGD attack. Default: false')
+    parser.add_argument('--seed', type=int, default=42,
+                        help='Seed for the dataset split and model initialization. Default: 42')                
     return parser.parse_args()
 
 if __name__ == '__main__':
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:256"
 
     args = arg_parse()
 
     dataset_name = args.dataset
     find_hyperparams = args.find_HP
     do_PGD_attack = args.PGD
+    seed = args.seed
 
     # Hyperparams
     lrs = [0.01]
@@ -249,8 +254,8 @@ if __name__ == '__main__':
     dataset = TUDataset(path, name=dataset_name)
 
     # Split the dataset into two part for training classifier and final evaluation, train_val_set can be further divided into training and validation parts
-    generator = torch.Generator().manual_seed(42) # Fix the seed to do fair comparation
-    train_val_set, eval_set = random_split(dataset, [0.9, 0.1], generator=generator)
+    torch.manual_seed(seed) # set seed for the reproducibility
+    train_val_set, eval_set = random_split(dataset, [0.9, 0.1])
     
 
     num_features = max(dataset.num_features, 1)
@@ -318,7 +323,9 @@ if __name__ == '__main__':
     dataloader_eval = DataLoader(eval_set, batch_size=128, shuffle=False) # Do not shuffle the evaluation set to make it reproduceable
     
     # The graph neural network backbone model to use
+    torch.manual_seed(seed) # set seed for the reproducibility
     encoder_model = GIN(num_features=num_features, dim=hidden_dim, num_gc_layers=num_layer, dropout=dropout).to(device)
+    torch.manual_seed(seed) # set seed for the reproducibility
     classifier = LogReg(hidden_dim * num_layer, num_classes).to(device)
     model = GCL_classifier(encoder_model, classifier)
     optimizer = Adam(model.parameters(), lr=lr)

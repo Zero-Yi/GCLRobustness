@@ -28,109 +28,6 @@ from wgin_conv import WGINConv
 
 from gin import GIN, LogReg, GCL_classifier, eval_encoder
 
-# Firstly define the model, from GraphCL
-# class GIN(torch.nn.Module):
-#     def __init__(self, num_features, dim, num_gc_layers, dropout=0): # num_feature: node feature维度，dim: node embedding维度
-#         super(GIN, self).__init__()
-
-#         self.num_gc_layers = num_gc_layers
-
-#         self.convs = torch.nn.ModuleList()
-#         self.bns = torch.nn.ModuleList()
-
-#         project_dim = dim * num_gc_layers
-#         self.project = torch.nn.Sequential( # 这个projector也是会在training过程中被训练的
-#             nn.Linear(project_dim, project_dim),
-#             nn.ReLU(inplace=True),
-#             nn.Linear(project_dim, project_dim)
-#             )
-
-#         self.dropout = dropout
-
-#         for i in range(num_gc_layers):
-
-#             if i:
-#                 mlp = Sequential(Linear(dim, dim), ReLU(), Linear(dim, dim))
-#             else: # 第一层在这里
-#                 mlp = Sequential(Linear(num_features, dim), ReLU(), Linear(dim, dim))
-#             conv = WGINConv(mlp)
-#             bn = torch.nn.BatchNorm1d(dim)
-
-#             self.convs.append(conv)
-#             self.bns.append(bn)
-
-#     def forward(self, x, edge_index, batch, edge_weight=None):
-#         if x is None:
-#             x = torch.ones((batch.shape[0], 1)).to(device)
-
-#         xs = []
-#         for i in range(self.num_gc_layers):
-
-#             x = F.relu(self.convs[i](x, edge_index, edge_weight))
-#             x = self.bns[i](x)
-#             F.dropout(x, p=self.dropout, training=self.training)
-#             xs.append(x) # xs is the node representation
-#             # if i == 2:
-#                 # feature_map = x2
-
-#         xpool = [global_add_pool(x, batch) for x in xs]
-#         x_g = torch.cat(xpool, 1) # g is the global representation
-
-#         return x_g, torch.cat(xs, 1) # global embeddings, nodes embeddings
-
-#     def get_embeddings(self, loader):
-#         '''
-#         Returns:
-#         ret: Tensor(num_graphs, global_embedding_features)
-#         y: Tensor(num_graphs,)
-#         '''
-#         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-#         ret = []
-#         y = []
-#         with torch.no_grad():
-#             for data in loader:
-
-#                 # data = data[0]
-#                 data.to(device)
-#                 x, edge_index, batch = data.x, data.edge_index, data.batch
-#                 edge_weight = data.edge_weight if hasattr(data, 'edge_weight') else None
-
-#                 if x is None:
-#                     x = torch.ones((batch.shape[0],1)).to(device)
-#                 x_g, _ = self.forward(x, edge_index, batch, edge_weight) # 只取用global embedding
-
-#                 ret.append(x_g)
-#                 y.append(data.y)
-#         ret = torch.cat(ret, dim=0)
-#         y = torch.cat(y, dim=0)
-#         return ret, y
-
-#     def get_embeddings_v(self, loader):
-#         '''
-#         Returns:
-#         x_g: Tensor(batch_size, global_embedding_features)
-#         ret: Tensor(num_nodes, node_embedding_features)
-#         y: Tensor(batch_size,)
-#         '''
-#         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-#         ret = []
-#         y = []
-#         with torch.no_grad():
-#             for n, data in enumerate(loader):
-#                 data.to(device)
-#                 x, edge_index, batch = data.x, data.edge_index, data.batch
-#                 if x is None:
-#                     x = torch.ones((batch.shape[0],1)).to(device)
-#                 x_g, x = self.forward(x, edge_index, batch)
-#                 x_g = x_g
-#                 ret = x
-#                 y = data.edge_index
-#                 print(data.y)
-#                 if n == 1: # 只取用一个batch做测试
-#                    break
-
-#         return x_g, ret, y
-
 class Encoder(torch.nn.Module):
     def __init__(self, encoder, augmentor):
         super(Encoder, self).__init__()
@@ -145,45 +42,6 @@ class Encoder(torch.nn.Module):
         eg1, en1 = self.encoder(x1, edge_index1, batch)
         eg2, en2 = self.encoder(x2, edge_index2, batch)
         return en, eg, en1, en2, eg1, eg2
-
-# Linear classifier to be used
-# class LogReg(nn.Module):
-#     def __init__(self, ft_in, nb_classes):
-#         super(LogReg, self).__init__()
-#         self.fc = nn.Linear(ft_in, nb_classes)
-
-#         for m in self.modules():
-#             self.weights_init(m)
-
-#     def weights_init(self, m):
-#         if isinstance(m, nn.Linear):
-#             torch.nn.init.xavier_uniform_(m.weight.data)
-#             if m.bias is not None:
-#                 m.bias.data.fill_(0.0)
-
-#     def forward(self, seq):
-#         ret = self.fc(seq)
-#         return ret
-
-# class GCL_classifier(torch.nn.Module):
-#     """
-#         To seal the encoder and classifier as a whole body and provide an end-to-end model.
-#     """
-#     def __init__(self, encoder, classifier):
-#         """
-#         Params:
-#             encoder: Used encoder
-#             classifier: Used classifier
-#         """
-#         super(GCL_classifier, self).__init__()
-
-#         self.encoder = encoder
-#         self.classifier = classifier
-
-#     def forward(self, x, edge_index, batch, edge_weight=None):
-#         x_g, _ = self.encoder(x, edge_index, batch, edge_weight)
-#         logits = self.classifier(x_g)
-#         return logits
 
 # Training in every epoch
 def train(encoder_model, contrast_model, dataloader, optimizer):
@@ -235,33 +93,6 @@ def train_classifier(x, y, num_classse=2, epoches=100, lr=0.01, device='cuda'):
     classifier.eval()
     return classifier
 
-# def eval_encoder(model, dataloader_eval, device='cuda'):
-#     '''
-#     Workflow:
-#         eval_set -> encoder => embeddings -> classifier => predictions
-#     Return:
-#         accuracy: accuracy on the evaluation set
-#         correct_mask: to indicate the correctly classified samples
-#     '''
-#     model.eval()
-
-#     ys = []
-#     preds = []
-
-#     for batch in dataloader_eval:
-#         batch.to(device)
-#         logits = model(batch.x, batch.edge_index, batch.batch)
-#         preds.append(torch.argmax(logits, dim=1))
-#         ys.append(batch.y)
-        
-#     preds = torch.cat(preds, dim=0)
-#     ys = torch.cat(ys, dim=0)
-
-#     correct_mask = (preds == ys)
-#     accuracy = torch.sum(correct_mask).float() / len(ys)
-
-#     return accuracy, correct_mask
-
 def arg_parse():
     parser = argparse.ArgumentParser(description='gin.py')
     parser.add_argument('--dataset', type=str, default='PROTEINS',
@@ -270,6 +101,8 @@ def arg_parse():
                         help='Whether to train different classifiers when evaluating the encoder. Default: false')
     parser.add_argument('--PGD', type=bool, default=False,
                         help='Whether apply PGD attack. Default: false')
+    parser.add_argument('--seed', type=int, default=42,
+                        help='Seed for the dataset split and model initialization. Default: 42')                
     return parser.parse_args()
 
 if __name__ == '__main__':
@@ -277,6 +110,7 @@ if __name__ == '__main__':
     dataset_name = args.dataset
     train_multiple_classifiers = args.multi_classifiers
     do_PGD_attack = args.PGD
+    seed = args.seed
 
     # Hyperparams
     lr = 0.01
@@ -299,8 +133,11 @@ if __name__ == '__main__':
                            A.NodeDropping(pn=0.2)], 1)
 
     # The graph neural network backbone model to use
+    torch.manual_seed(seed) # set seed for the reproducibility
     gconv = GIN(num_features=num_features, dim=32, num_gc_layers=num_layers, device=device).to(device)
+    torch.manual_seed(seed) # set seed for the reproducibility
     encoder_model = Encoder(encoder=gconv, augmentor=(aug1, aug2)).to(device)
+    torch.manual_seed(seed) # set seed for the reproducibility
     contrast_model = DualBranchContrast(loss=L.InfoNCE(tau=0.2), mode='G2G').to(device)
     optimizer = Adam(encoder_model.parameters(), lr=lr)
 
@@ -315,7 +152,7 @@ if __name__ == '__main__':
     # torch.save(encoder_model.state_dict(), 'Savings/model_params/model.pt')
     
     # Split the dataset into two part for training classifier and final evaluation, train_set can be further divided into training and validation parts
-    generator = torch.Generator().manual_seed(42) # Fix the seed to do fair comparation
+    generator = torch.Generator().manual_seed(seed) # Fix the seed to do fair comparation
     train_set, eval_set = random_split(dataset, [0.9, 0.1], generator=generator)
     dataloader_train = DataLoader(train_set, batch_size=128, shuffle=True)
     dataloader_eval = DataLoader(eval_set, batch_size=128, shuffle=False) # Do not shuffle the evaluation set to make it reproduceable
