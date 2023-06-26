@@ -3,3 +3,5 @@ __pycache__/
 *.out
 *.log
 log/
+scripts
+try.pkl

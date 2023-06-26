@@ -36,7 +36,7 @@ class PGDAttack():
         tolerance during bisection
     """
 
-    def __init__(self, surrogate=None, loss_type='CE', device='cuda', epsilon=1e-5):
+    def __init__(self, surrogate=None, loss_type='CE', device='cuda', epsilon=1e-5, log=True):
 
         self.modified_adj = None
         self.original_adj = None
@@ -49,6 +49,7 @@ class PGDAttack():
         self.surrogate = surrogate
         self.device = device
         self.epsilon = epsilon
+        self.log = log
 
     def attack(self, eval_set, mask=None, batch_size=128, attack_ratio=0.05):
         '''
@@ -66,16 +67,26 @@ class PGDAttack():
         eval_set_adv = [data for data, mask_value in zip(eval_set, mask) if mask_value] # only pick out the data indicated by mask==True
 
         adv_datalist_eval = []
-        for one_graph in tqdm(eval_set_adv):
-            one_graph.to(self.device)
-            if one_graph.x is None:
-                num_nodes = one_graph.num_nodes
-                one_graph.x = torch.ones((num_nodes, 1), dtype=torch.float32, device=self.device)
-            n_perturbations = int(one_graph.edge_index.shape[1] * attack_ratio)
-            # attacker = PGDAttack(surrogate=model, device=device)
-            _, _, adv_edge_index = self.attack_one_graph(one_graph.x, one_graph.edge_index, one_graph.batch, one_graph.y, n_perturbations)
-            new_graph = Data(edge_index=adv_edge_index, x=one_graph.x, y=one_graph.y)
-            adv_datalist_eval.append(new_graph)
+        if self.log == True:
+            for one_graph in tqdm(eval_set_adv):
+                one_graph.to(self.device)
+                if one_graph.x is None:
+                    num_nodes = one_graph.num_nodes
+                    one_graph.x = torch.ones((num_nodes, 1), dtype=torch.float32, device=self.device)
+                n_perturbations = int(one_graph.edge_index.shape[1] * attack_ratio)
+                _, _, adv_edge_index = self.attack_one_graph(one_graph.x, one_graph.edge_index, one_graph.batch, one_graph.y, n_perturbations)
+                new_graph = Data(edge_index=adv_edge_index, x=one_graph.x, y=one_graph.y)
+                adv_datalist_eval.append(new_graph)
+        else:
+            for one_graph in eval_set_adv:
+                one_graph.to(self.device)
+                if one_graph.x is None:
+                    num_nodes = one_graph.num_nodes
+                    one_graph.x = torch.ones((num_nodes, 1), dtype=torch.float32, device=self.device)
+                n_perturbations = int(one_graph.edge_index.shape[1] * attack_ratio)
+                _, _, adv_edge_index = self.attack_one_graph(one_graph.x, one_graph.edge_index, one_graph.batch, one_graph.y, n_perturbations)
+                new_graph = Data(edge_index=adv_edge_index, x=one_graph.x, y=one_graph.y)
+                adv_datalist_eval.append(new_graph)
 
         dataloader_eval_adv = DataLoader(adv_datalist_eval, batch_size=128)
 
@@ -117,7 +128,7 @@ class PGDAttack():
         # for t in tqdm(range(epochs)):
         for t in range(epochs):
             modified_weight, _ = self.get_modified_weight()
-            logit = victim_model(x, fc_edge_index, batch, edge_weight=modified_weight)
+            logit = victim_model(x, fc_edge_index, batch=batch, edge_weight=modified_weight)
             loss = F.cross_entropy(logit, y)
 
             loss.backward() # Calculate the gradient
@@ -178,7 +189,7 @@ class PGDAttack():
                     continue
                 self.adj_changes.data.copy_(torch.tensor(sampled))
                 modified_weight, _ = self.get_modified_weight()
-                logit = victim_model(x, edge_index, batch, edge_weight=modified_weight)
+                logit = victim_model(x, edge_index, batch=batch, edge_weight=modified_weight)
                 loss = F.cross_entropy(logit, y)
                 if best_loss < loss:
                     best_loss = loss

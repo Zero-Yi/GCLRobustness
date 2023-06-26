@@ -25,7 +25,7 @@ import argparse
 
 from attacker.greedy import Greedy
 from attacker.PGD import PGDAttack
-from wgin_conv import WGINConv
+from layer.wgin_conv import WGINConv
 import os
 
 # Firstly define the model, from GraphCL
@@ -60,7 +60,7 @@ class GIN(torch.nn.Module):
             self.convs.append(conv)
             self.bns.append(bn)
 
-    def forward(self, x, edge_index, batch, edge_weight=None):
+    def forward(self, x, edge_index, edge_weight=None, batch=None):
         if x is None:
             x = torch.ones((batch.shape[0], 1)).to(self.device)
 
@@ -97,7 +97,7 @@ class GIN(torch.nn.Module):
 
                 if x is None:
                     x = torch.ones((batch.shape[0],1)).to(self.device)
-                x_g, _ = self.forward(x, edge_index, batch, edge_weight) # 只取用global embedding
+                x_g, _ = self.forward(x, edge_index, edge_weight=edge_weight, batch=batch) # 只取用global embedding
 
                 ret.append(x_g)
                 y.append(data.y)
@@ -120,7 +120,7 @@ class GIN(torch.nn.Module):
                 x, edge_index, batch = data.x, data.edge_index, data.batch
                 if x is None:
                     x = torch.ones((batch.shape[0],1)).to(self.device)
-                x_g, x = self.forward(x, edge_index, batch)
+                x_g, x = self.forward(x, edge_index, batch=batch)
                 x_g = x_g
                 ret = x
                 y = data.edge_index
@@ -163,8 +163,8 @@ class GCL_classifier(torch.nn.Module):
         self.encoder = encoder
         self.classifier = classifier
 
-    def forward(self, x, edge_index, batch, edge_weight=None):
-        x_g, _ = self.encoder(x, edge_index, batch, edge_weight)
+    def forward(self, x, edge_index, edge_weight=None, batch=None):
+        x_g, _ = self.encoder(x, edge_index, edge_weight=edge_weight, batch=batch)
         logits = self.classifier(x_g)
         return logits
 
@@ -181,7 +181,7 @@ def train(encoder_model, dataloader, optimizer, scheduler=None):
             num_nodes = data.batch.size(0)
             data.x = torch.ones((num_nodes, 1), dtype=torch.float32, device=data.batch.device)
 
-        logits = encoder_model(data.x, data.edge_index, data.batch)
+        logits = encoder_model(data.x, data.edge_index, batch=data.batch)
 
         loss = F.cross_entropy(logits, data.y)
         loss.backward()
@@ -207,7 +207,7 @@ def eval_encoder(model, dataloader_eval, device='cuda'):
 
     for batch in dataloader_eval:
         batch.to(device)
-        logits = model(batch.x, batch.edge_index, batch.batch)
+        logits = model(batch.x, batch.edge_index, batch=batch.batch)
         preds.append(torch.argmax(logits, dim=1))
         ys.append(batch.y)
         
