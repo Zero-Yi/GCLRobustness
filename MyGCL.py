@@ -25,7 +25,7 @@ import argparse
 from attacker.greedy import Greedy
 from attacker.PGD import PGDAttack
 from attacker.PRBCD import MyPRBCDAttack
-from wgin_conv import WGINConv
+from layer.wgin_conv import WGINConv
 
 from gin import GIN, LogReg, GCL_classifier, eval_encoder
 

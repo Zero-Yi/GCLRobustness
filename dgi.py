@@ -2,7 +2,9 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn.models import DeepGraphInfomax, GCN
 from torch_geometric.datasets import CitationFull
-from torch_geometric.utils import get_laplacian
+# from torch_geometric.datasets import Planetoid
+from torch_geometric.utils import get_laplacian, dropout_edge, add_random_edge
+from torch_geometric.contrib.nn import PRBCDAttack
 
 import os.path as osp
 import argparse
@@ -15,12 +17,49 @@ import copy
 from aug.my_feature_masking import MyFeatureMasking
 from layer.readout import AvgReadout
 from layer.corrupt import FeatureShuffle
-from gin import LogReg
+from gin import LogReg, eval_encoder
+from attacker.greedy import Greedy
+from attacker.PGD import PGDAttack
+from MyGCL import train_classifier
 
 def disc(summary_aug, pos, neg, DGI):
     pos_logits = DGI.discriminate(z = pos, summary = summary_aug, sigmoid = False)
     neg_logits = DGI.discriminate(z = neg, summary = summary_aug, sigmoid = False)
     return torch.cat((pos_logits.unsqueeze(1), neg_logits.unsqueeze(1)),1)
+
+class GCL_classifier(nn.Module):
+    def __init__(self, encoder, classifier):
+        super().__init__()
+        self.encoder = encoder
+        self.classifier = classifier
+    
+    def forward(self, x, edge_index, edge_weight=None, batch=None):
+        z = self.encoder(x, edge_index, edge_weight = edge_weight)
+        logits = self.classifier(z)
+        return logits
+
+def eval_encoder(model, y, x, edge_index, edge_weight=None, idx_test=None, device='cuda'):
+    '''
+    Workflow:
+        graph -> encoder => embeddings -> classifier => predictions
+    Return:
+        accuracy: accuracy on the evaluation set
+        correct_mask: to indicate the correctly classified nodes in the test set
+    '''
+    model.eval()
+
+    z = model.encoder(x = x, edge_index = edge_index, edge_weight = edge_weight)
+    if idx_test == None:
+        idx_test = torch.tensor(range(len(x))).to(device) # use all nodes as the test set
+    test_z = z[idx_test]
+    test_y = y[idx_test]
+
+    logits = model.classifier(test_z)
+    preds = torch.argmax(logits, dim=1)
+    correct_mask = (preds == test_y)
+    accuracy = torch.sum(correct_mask).float() / test_y.shape[0]
+
+    return accuracy, correct_mask
 
 def arg_parse():
     parser = argparse.ArgumentParser(description='dgi.py')
@@ -58,6 +97,7 @@ if __name__ == '__main__':
     device = torch.device('cuda')
     path = osp.join(osp.expanduser('~'), 'datasets')
     dataset = CitationFull(path, name=dataset_name)
+    # dataset = Planetoid(path, name=dataset_name)
     assert len(dataset) == 1, "Expecting node classification on one huge graph"
     
     data = dataset[0]
@@ -171,11 +211,12 @@ if __name__ == '__main__':
 
     train_z = z[idx_train]
     train_y = y[idx_train]
-    test_z = z[idx_test]
-    test_y = y[idx_test]
 
     xent = nn.CrossEntropyLoss()
     accs_clean = []
+    accs_greedy = []
+    accs_PGD = []
+    accs_PRBCD = []
     for _ in tqdm(range(50)): # use 50 linear classifier
         log = LogReg(hid_units, num_classes).to(device)
         opt = torch.optim.Adam(log.parameters(), lr=0.01, weight_decay=0.0)
@@ -190,10 +231,49 @@ if __name__ == '__main__':
             loss.backward()
             opt.step()
 
-        logits = log(test_z)
-        preds = torch.argmax(logits, dim=1)
-        acc = torch.sum(preds == test_y).float() / test_y.shape[0]
+        encoder_classifier = GCL_classifier(model.encoder, log)
+        encoder_classifier.eval()
+        # ++++++++++ clean ++++++++++++++++
+        acc, _ = eval_encoder(encoder_classifier, y, x, edge_index, idx_test=idx_test, device=device)
         accs_clean.append(acc)
 
+        # ++++++++++ Greedy ++++++++++++++++
+        attack_ratio = 0.05
+        updated_edge_index, _ = dropout_edge(edge_index, p=attack_ratio, force_undirected=False) # Randomly drop edges
+        _, added_edges = add_random_edge(edge_index, p=attack_ratio, force_undirected=False) # Randomly add edges
+        updated_edge_index = torch.cat((updated_edge_index,added_edges), dim=1)
+
+        acc_greedy, _ = eval_encoder(encoder_classifier, y, x, updated_edge_index, idx_test=idx_test, device=device)
+        accs_greedy.append(acc_greedy)
+        # ++++++++++ Greedy over ++++++++++++++++
+
+        if do_PGD_attack == True:
+            # ++++++++++ PGD ++++++++++++++++
+            PGDattacker = PGDAttack(surrogate=encoder_classifier, device=device, epsilon=1e-4, log=False)
+            budget = int(edge_index.shape[1] * attack_ratio)
+            _, _, adv_edge_index = PGDattacker.attack_one_graph(x=x, edge_index=edge_index, batch=None, y=y, n_perturbations=budget)
+            
+            acc_PGD, _ = eval_encoder(encoder_classifier, y, x, adv_edge_index, idx_test=idx_test, device=device)
+            accs_PGD.append(acc_PGD)
+            # ++++++++++ PGD over ++++++++++++++++
+
+        if do_PRBCD_attack == True:
+            # ++++++++++ PRBCD ++++++++++++++++
+            PRBCDattacker = PRBCDAttack(model=encoder_classifier, block_size=250_000, log=False)
+            budget = int(edge_index.shape[1] * attack_ratio)
+            adv_edge_index, _ = PRBCDattacker.attack(x=x, edge_index=edge_index, labels=y, budget=budget)
+
+            acc_PRBCD, _ = eval_encoder(encoder_classifier, y, x, adv_edge_index, idx_test=idx_test, device=device)
+            accs_PRBCD.append(acc_PRBCD)
+            # ++++++++++ PRBCD over ++++++++++++++++
+    
     accs_clean = torch.stack(accs_clean)
+    accs_greedy = torch.stack(accs_greedy)
     print(f'(A): clean average accuracy={accs_clean.mean():.4f}, std={accs_clean.std():.4f}')
+    print(f'(A): greedy adversarial average accuracy={accs_greedy.mean():.4f}, std={accs_greedy.std():.4f}')
+    if do_PGD_attack == True:
+        accs_PGD = torch.stack(accs_PGD)
+        print(f'(A): PGD adversarial average accuracy={accs_PGD.mean():.4f}, std={accs_PGD.std():.4f}')
+    if do_PRBCD_attack == True:
+        accs_PRBCD = torch.stack(accs_PRBCD)
+        print(f'(A): PRBCD adversarial average accuracy={accs_PRBCD.mean():.4f}, std={accs_PRBCD.std():.4f}')
