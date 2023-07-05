@@ -1,11 +1,11 @@
-from torch_geometric.contrib.nn import PRBCDAttack
+from torch_geometric.contrib.nn import GRBCDAttack
 import torch
 from tqdm import tqdm
 
 from torch_geometric.loader import DataLoader
 from torch_geometric.data import Data
 
-class MyPRBCDAttack(PRBCDAttack):
+class MyGRBCDAttack(GRBCDAttack):
     def __init__(
         self,
         model: torch.nn.Module,

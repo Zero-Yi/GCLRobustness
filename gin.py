@@ -25,8 +25,17 @@ import argparse
 
 from attacker.greedy import Greedy
 from attacker.PGD import PGDAttack
+from attacker.PRBCD import MyPRBCDAttack
+from attacker.GRBCD import MyGRBCDAttack
 from layer.wgin_conv import WGINConv
 import os
+
+def setup_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    np.random.seed(seed)
+    random.seed(seed)
 
 # Firstly define the model, from GraphCL
 class GIN(torch.nn.Module):
@@ -227,6 +236,10 @@ def arg_parse():
                         help='Whether use 10-Fold cross validation to find hyperparams first. Default: false')
     parser.add_argument('--PGD', type=bool, default=False,
                         help='Whether apply PGD attack. Default: false')
+    parser.add_argument('--PRBCD', type=bool, default=False,
+                        help='Whether apply PRBCD attack. Default: false')
+    parser.add_argument('--GRBCD', type=bool, default=False,
+                        help='Whether apply GRBCD attack. Default: false')
     parser.add_argument('--seed', type=int, default=42,
                         help='Seed for the dataset split and model initialization. Default: 42')                
     return parser.parse_args()
@@ -239,6 +252,8 @@ if __name__ == '__main__':
     dataset_name = args.dataset
     find_hyperparams = args.find_HP
     do_PGD_attack = args.PGD
+    do_PRBCD_attack = args.PRBCD
+    do_GRBCD_attack = args.GRBCD
     seed = args.seed
 
     # Hyperparams
@@ -254,7 +269,7 @@ if __name__ == '__main__':
     dataset = TUDataset(path, name=dataset_name)
 
     # Split the dataset into two part for training classifier and final evaluation, train_val_set can be further divided into training and validation parts
-    torch.manual_seed(seed) # set seed for the reproducibility
+    setup_seed(seed) # set seed for the reproducibility
     train_val_set, eval_set = random_split(dataset, [0.9, 0.1])
     
 
@@ -323,9 +338,8 @@ if __name__ == '__main__':
     dataloader_eval = DataLoader(eval_set, batch_size=128, shuffle=False) # Do not shuffle the evaluation set to make it reproduceable
     
     # The graph neural network backbone model to use
-    torch.manual_seed(seed) # set seed for the reproducibility
+    setup_seed(seed) # set seed for the reproducibility
     encoder_model = GIN(num_features=num_features, dim=hidden_dim, num_gc_layers=num_layer, dropout=dropout).to(device)
-    torch.manual_seed(seed) # set seed for the reproducibility
     classifier = LogReg(hidden_dim * num_layer, num_classes).to(device)
     model = GCL_classifier(encoder_model, classifier)
     optimizer = Adam(model.parameters(), lr=lr)
@@ -345,6 +359,8 @@ if __name__ == '__main__':
 
     accs_clean = []
     accs_adv_PGD = []
+    accs_adv_PRBCD = []
+    accs_adv_GRBCD = []
     accs_adv_greedy = []
     for _ in range(runs):
 
@@ -378,21 +394,58 @@ if __name__ == '__main__':
             accs_adv_PGD.append(acc_adv_PGD)
         # ++++++++++ PGD over ++++++++++++++++
 
+        if do_PRBCD_attack == True:
+            # ++++++++++ PRBCD ++++++++++++++++
+            PRBCDattacker = MyPRBCDAttack(encoder_classifier, block_size=250_000, mylog=True)
+            dataloader_eval_adv_PRBCD = PRBCDattacker.attack(eval_set, mask, attack_ratio=0.05)
+
+            # Accuracy on the adversarial data only
+            acc_adv_only_PRBCD, _ = eval_encoder(encoder_classifier, dataloader_eval_adv_PRBCD)
+
+            # Overall adversarial accuracy
+            acc_adv_PRBCD = acc_clean * acc_adv_only_PRBCD # T/all * Tadv/T = Tadv/all
+            accs_adv_PRBCD.append(acc_adv_PRBCD)
+            # ++++++++++ PRBCD over ++++++++++++++++
+
+        if do_GRBCD_attack == True:
+            # ++++++++++ GRBCD ++++++++++++++++
+            GRBCDattacker = MyGRBCDAttack(encoder_classifier, block_size=250_000, mylog=True)
+            dataloader_eval_adv_GRBCD = GRBCDattacker.attack(eval_set, mask, attack_ratio=0.05)
+
+            # Accuracy on the adversarial data only
+            acc_adv_only_GRBCD, _ = eval_encoder(encoder_classifier, dataloader_eval_adv_GRBCD)
+
+            # Overall adversarial accuracy
+            acc_adv_GRBCD = acc_clean * acc_adv_only_GRBCD # T/all * Tadv/T = Tadv/all
+            accs_adv_GRBCD.append(acc_adv_GRBCD)
+            # ++++++++++ GRBCD over ++++++++++++++++
+
+        print(f'(A): clean accuracy={acc_clean:.4f}, greedy adversarial accuracy={acc_adv_greedy:.4f}')
+        del Greedyattacker # Try to save memory
+
         if do_PGD_attack == True:
-            print(f'(A): clean accuracy={acc_clean:.4f}, greedy adversarial accuracy={acc_adv_greedy:.4f}, PGD adversarial accuracy={acc_adv_PGD:.4f}')
-            del Greedyattacker, PGDattacker # Try to save memory
-        else:
-            print(f'(A): clean accuracy={acc_clean:.4f}, greedy adversarial accuracy={acc_adv_greedy:.4f}')
-            del Greedyattacker # Try to save memory
+            print(f'(A): PGD adversarial accuracy={acc_adv_PGD:.4f}')
+            del PGDattacker # Try to save memory
+        if do_PRBCD_attack == True:
+            print(f'(A): PRBCD adversarial accuracy={acc_adv_PRBCD:.4f}')
+            del PRBCDattacker # Try to save memory
+        if do_GRBCD_attack == True:
+            print(f'(A): GRBCD adversarial accuracy={acc_adv_GRBCD:.4f}')
+            del GRBCDattacker # Try to save memory
 
         torch.cuda.empty_cache() # Try to save memory
         
-        
-    accs_clean = torch.stack(accs_clean)
-    accs_adv_greedy = torch.stack(accs_adv_greedy)
-    print(f'(A): clean average accuracy={accs_clean.mean():.4f}, std={accs_clean.std():.4f}')
-    print(f'(A): greedy adversarial average accuracy={accs_adv_greedy.mean():.4f}, std={accs_adv_greedy.std():.4f}')
-    if do_PGD_attack == True:
-        accs_adv_PGD = torch.stack(accs_adv_PGD)
-        print(f'(A): PGD adversarial average accuracy={accs_adv_PGD.mean():.4f}, std={accs_adv_PGD.std():.4f}')
+        accs_clean = torch.stack(accs_clean)
+        accs_adv_greedy = torch.stack(accs_adv_greedy)
+        print(f'(A): clean average accuracy={accs_clean.mean():.4f}, std={accs_clean.std():.4f}')
+        print(f'(A): greedy adversarial average accuracy={accs_adv_greedy.mean():.4f}, std={accs_adv_greedy.std():.4f}')
+        if do_PGD_attack == True:
+            accs_adv_PGD = torch.stack(accs_adv_PGD)
+            print(f'(A): PGD adversarial average accuracy={accs_adv_PGD.mean():.4f}, std={accs_adv_PGD.std():.4f}')
+        if do_PRBCD_attack == True:
+            accs_adv_PRBCD = torch.stack(accs_adv_PRBCD)
+            print(f'(A): PRBCD adversarial average accuracy={accs_adv_PRBCD.mean():.4f}, std={accs_adv_PRBCD.std():.4f}')
+        if do_GRBCD_attack == True:
+            accs_adv_GRBCD = torch.stack(accs_adv_GRBCD)
+            print(f'(A): GRBCD adversarial average accuracy={accs_adv_GRBCD.mean():.4f}, std={accs_adv_GRBCD.std():.4f}')
 

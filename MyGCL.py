@@ -12,6 +12,7 @@ from GCL.models import DualBranchContrast
 from torch_geometric.nn import GINConv, global_add_pool, summary
 from torch_geometric.loader import DataLoader
 from torch_geometric.datasets import TUDataset
+from torch_geometric.utils import get_laplacian, remove_self_loops
 
 from tqdm import tqdm
 import itertools
@@ -21,27 +22,49 @@ from sklearn.model_selection import StratifiedKFold
 import numpy as np
 import os.path as osp
 import argparse
+import random
 
 from attacker.greedy import Greedy
 from attacker.PGD import PGDAttack
 from attacker.PRBCD import MyPRBCDAttack
+from attacker.GRBCD import MyGRBCDAttack
 from layer.wgin_conv import WGINConv
 
 from gin import GIN, LogReg, GCL_classifier, eval_encoder
 
+def setup_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    np.random.seed(seed)
+    random.seed(seed)
+
 class Encoder(torch.nn.Module):
-    def __init__(self, encoder, augmentor):
+    def __init__(self, encoder, augmentor, normalize=False):
         super(Encoder, self).__init__()
         self.encoder = encoder
         self.augmentor = augmentor
+        self.normalize = normalize
 
     def forward(self, x, edge_index, batch):
         aug1, aug2 = self.augmentor
         x1, edge_index1, edge_weight1 = aug1(x, edge_index)
         x2, edge_index2, edge_weight2 = aug2(x, edge_index)
-        eg , en  = self.encoder(x, edge_index, batch=batch)
-        eg1, en1 = self.encoder(x1, edge_index1, batch=batch)
-        eg2, en2 = self.encoder(x2, edge_index2, batch=batch)
+
+        if self.normalize:
+            # use normalized adjacency
+            edge_index, edge_weight = get_laplacian(edge_index, normalization = 'sym')
+            edge_index1, edge_weight1 = get_laplacian(edge_index1, normalization = 'sym')
+            edge_index2, edge_weight2 = get_laplacian(edge_index2, normalization = 'sym')
+            edge_index, edge_weight = remove_self_loops(edge_index, -edge_weight)
+            edge_index1, edge_weight1 = remove_self_loops(edge_index1, -edge_weight1)
+            edge_index2, edge_weight2 = remove_self_loops(edge_index2, -edge_weight2)
+        else:
+            edge_weight = None
+ 
+        eg , en  = self.encoder(x, edge_index, edge_weight=edge_weight, batch=batch)
+        eg1, en1 = self.encoder(x1, edge_index1, edge_weight=edge_weight1, batch=batch)
+        eg2, en2 = self.encoder(x2, edge_index2, edge_weight=edge_weight2, batch=batch)
         return en, eg, en1, en2, eg1, eg2
 
 # Training in every epoch
@@ -76,7 +99,7 @@ def train_classifier(x, y, num_classse=2, epoches=100, lr=0.01, device='cuda', s
     '''
     x.to(device)
     y.to(device)
-    torch.manual_seed(seed)
+    setup_seed(seed)
     classifier = LogReg(x.shape[1], num_classse).to(device)
     xent = CrossEntropyLoss()
     opt = torch.optim.Adam(classifier.parameters(), lr=lr, weight_decay=0.0)
@@ -124,12 +147,16 @@ def arg_parse():
                         help='Whether apply PGD attack. Default: false')
     parser.add_argument('--PRBCD', type=bool, default=False,
                         help='Whether apply PRBCD attack. Default: false')
+    parser.add_argument('--GRBCD', type=bool, default=False,
+                        help='Whether apply GRBCD attack. Default: false')
     parser.add_argument('--seed_split', type=int, default=42,
                         help='Seed for the dataset split. Default: 42')
     parser.add_argument('--seeds_encoder', nargs='+', type=int, default=[1,2,3,4,5],
                         help='List of seeds for the encoder initialization. Default: [1,2,3,4,5]') 
     parser.add_argument('--seeds_lc', nargs='+', type=int, default=[1,2,3,4,5],
-                        help='List of seeds for the classifier initialization. Default: [1,2,3,4,5]') 
+                        help='List of seeds for the classifier initialization. Default: [1,2,3,4,5]')
+    parser.add_argument('--normalize', type=bool, default=False,
+                        help='Whether apply normalized Laplacian. Default: false')      
     return parser.parse_args()
 
 if __name__ == '__main__':
@@ -137,15 +164,17 @@ if __name__ == '__main__':
     dataset_name = args.dataset
     do_PGD_attack = args.PGD
     do_PRBCD_attack = args.PRBCD
+    do_GRBCD_attack = args.GRBCD
     seed_split = args.seed_split
     seeds_encoder = args.seeds_encoder
     seeds_lc = args.seeds_lc
+    do_normalize = args.normalize
 
     # Hyperparams
     lr = 0.01
     num_layers = 3
     epochs = 20
-    print(f'====== lr:{lr}, num_layers:{num_layers}, epochs:{epochs}, dataset:{dataset_name}, PGD attack:{do_PGD_attack}, PRBCD attack:{do_PRBCD_attack}======')
+    print(f'====== dataset:{dataset_name}, PGD :{do_PGD_attack}, PRBCD :{do_PRBCD_attack}, GRBCD :{do_GRBCD_attack}======')
 
     device = torch.device('cuda')
     path = osp.join(osp.expanduser('~'), 'datasets')
@@ -157,7 +186,7 @@ if __name__ == '__main__':
         print("No node feature, paddings of 1 will be used in GIN when forwarding.")
 
     # Split the dataset into two part for training classifier and final evaluation, train_set can be further divided into training and validation parts
-    torch.manual_seed(seed_split) # set seed for the reproducibility
+    setup_seed(seed_split) # set seed for the reproducibility
     train_set, eval_set = random_split(dataset, [0.9, 0.1])
     dataloader_train = DataLoader(train_set, batch_size=128, shuffle=True)
     dataloader_eval = DataLoader(eval_set, batch_size=128, shuffle=False) # Do not shuffle the evaluation set to make it reproduceable
@@ -170,11 +199,9 @@ if __name__ == '__main__':
 
     for seed_encoder in seeds_encoder: 
 
-        torch.manual_seed(seed_encoder) # set seed for the reproducibility
+        setup_seed(seed_encoder) # set seed for the reproducibility
         gconv = GIN(num_features=num_features, dim=32, num_gc_layers=num_layers, device=device).to(device)
-        torch.manual_seed(seed_encoder) # set seed for the reproducibility
         encoder_model = Encoder(encoder=gconv, augmentor=(aug1, aug2)).to(device)
-        torch.manual_seed(seed_encoder) # set seed for the reproducibility
         contrast_model = DualBranchContrast(loss=L.InfoNCE(tau=0.2), mode='G2G').to(device)
         optimizer = Adam(encoder_model.parameters(), lr=lr)
 
@@ -199,6 +226,7 @@ if __name__ == '__main__':
         accs_clean = []
         accs_adv_PGD = []
         accs_adv_PRBCD = []
+        accs_adv_GRBCD = []
         accs_adv_greedy = []
 
         for seed_lc in seeds_lc:
@@ -252,7 +280,22 @@ if __name__ == '__main__':
                 # Overall adversarial accuracy
                 acc_adv_PRBCD = acc_clean * acc_adv_only_PRBCD # T/all * Tadv/T = Tadv/all
                 accs_adv_PRBCD.append(acc_adv_PRBCD)
+
+                del dataloader_eval_adv_PRBCD
                 # ++++++++++ PRBCD over ++++++++++++++++
+
+            if do_GRBCD_attack == True:
+                # ++++++++++ GRBCD ++++++++++++++++
+                GRBCDattacker = MyGRBCDAttack(encoder_classifier, block_size=250_000, mylog=True)
+                dataloader_eval_adv_GRBCD = GRBCDattacker.attack(eval_set, mask, attack_ratio=0.05)
+
+                # Accuracy on the adversarial data only
+                acc_adv_only_GRBCD, _ = eval_encoder(encoder_classifier, dataloader_eval_adv_GRBCD)
+
+                # Overall adversarial accuracy
+                acc_adv_GRBCD = acc_clean * acc_adv_only_GRBCD # T/all * Tadv/T = Tadv/all
+                accs_adv_GRBCD.append(acc_adv_GRBCD)
+                # ++++++++++ GRBCD over ++++++++++++++++
 
             print(f'(A): clean accuracy={acc_clean:.4f}, greedy adversarial accuracy={acc_adv_greedy:.4f}')
             del Greedyattacker # Try to save memory
@@ -263,24 +306,31 @@ if __name__ == '__main__':
             if do_PRBCD_attack == True:
                 print(f'(A): PRBCD adversarial accuracy={acc_adv_PRBCD:.4f}')
                 del PRBCDattacker # Try to save memory
+            if do_GRBCD_attack == True:
+                print(f'(A): GRBCD adversarial accuracy={acc_adv_GRBCD:.4f}')
+                del GRBCDattacker # Try to save memory
 
             print(f'==== Trial with LC seed {seed_lc} finished. ====')
                 
         accs_clean = torch.stack(accs_clean)
         accs_adv_greedy = torch.stack(accs_adv_greedy)
         print(f'(A): clean average accuracy={accs_clean.mean():.4f}, std={accs_clean.std():.4f}')
-        print(f'(A): greedy adversarial average accuracy={accs_adv_greedy.mean():.4f}, std={accs_adv_greedy.std():.4f}')
+        print(f'(A): greedy adversarial average accuracy={accs_adv_greedy.mean():.4f}, std={accs_adv_greedy.std():.4f}, drop percentage:{(accs_clean.mean() - accs_adv_greedy.mean())/accs_clean.mean()}')
         if do_PGD_attack == True:
             accs_adv_PGD = torch.stack(accs_adv_PGD)
-            print(f'(A): PGD adversarial average accuracy={accs_adv_PGD.mean():.4f}, std={accs_adv_PGD.std():.4f}')
+            print(f'(A): PGD adversarial average accuracy={accs_adv_PGD.mean():.4f}, std={accs_adv_PGD.std():.4f}, drop percentage:{(accs_clean.mean() - accs_adv_PGD.mean())/accs_clean.mean()}')
         if do_PRBCD_attack == True:
             accs_adv_PRBCD = torch.stack(accs_adv_PRBCD)
-            print(f'(A): PRBCD adversarial average accuracy={accs_adv_PRBCD.mean():.4f}, std={accs_adv_PRBCD.std():.4f}')
+            print(f'(A): PRBCD adversarial average accuracy={accs_adv_PRBCD.mean():.4f}, std={accs_adv_PRBCD.std():.4f}, drop percentage:{(accs_clean.mean() - accs_adv_PRBCD.mean())/accs_clean.mean()}')
+        if do_GRBCD_attack == True:
+            accs_adv_GRBCD = torch.stack(accs_adv_GRBCD)
+            print(f'(A): GRBCD adversarial average accuracy={accs_adv_GRBCD.mean():.4f}, std={accs_adv_GRBCD.std():.4f}, drop percentage:{(accs_clean.mean() - accs_adv_GRBCD.mean())/accs_clean.mean()}')
         
         list_encoders.append({'accs_clean': accs_clean.mean(), 
                                     'accs_adv_greedy': accs_adv_greedy.mean(),
-                                    'accs_adv_PGD': accs_adv_PGD.mean(),
-                                    'accs_adv_PRBCD': accs_adv_PRBCD.mean()})
+                                    # 'accs_adv_PGD': accs_adv_PGD.mean(),
+                                    'accs_adv_PRBCD': accs_adv_PRBCD.mean(),
+                                    'accs_adv_GRBCD': accs_adv_GRBCD.mean()})
         print(f'==== Trial with encoder seed {seed_encoder} finished. ====')
     
     for i in range(len(seeds_encoder)):

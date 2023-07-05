@@ -8,6 +8,6 @@
 # do
 #     python MyGCL.py   # 运行你的 Python 程序
 # done
-python dgi.py --dataset Cora --PGD True --PRBCD True > log/DGI/Cora.log 
-python dgi.py --dataset CiteSeer --PGD True --PRBCD True > log/DGI/CiteSeer.log 
-python dgi.py --dataset PubMed --PGD True --PRBCD True > log/DGI/PubMed.log 
+python gcn.py --dataset Cora --PRBCD True --GRBCD True --normalize True > log/GCN/Cora.log 
+python gcn.py --dataset CiteSeer --PRBCD True --GRBCD True --normalize True > log/GCN/CiteSeer.log
+python gcn.py --dataset PubMed --PRBCD True --GRBCD True --normalize True > log/GCN/PubMed.log

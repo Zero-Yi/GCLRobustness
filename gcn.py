@@ -17,11 +17,10 @@ import copy
 from aug.my_feature_masking import MyFeatureMasking
 from layer.readout import AvgReadout
 from layer.corrupt import FeatureShuffle
-from gin import LogReg
+from gin import LogReg, eval_encoder
 from attacker.greedy import Greedy
 from attacker.PGD import PGDAttack
 from MyGCL import train_classifier
-from layer.MyGCN import MyGCN
 
 def disc(summary_aug, pos, neg, DGI):
     pos_logits = DGI.discriminate(z = pos, summary = summary_aug, sigmoid = False)
@@ -66,10 +65,6 @@ def arg_parse():
     parser = argparse.ArgumentParser(description='dgi.py')
     parser.add_argument('--dataset', type=str, default='Cora',
                         help='Dataset')
-    parser.add_argument('--ratio', type=float, default='0.1',
-                        help='Perterbation ratio in augmentation. Default: 0.1')
-    parser.add_argument('--aug', type=str, default='edge',
-                        help='Type of augmentation. Edge, mask, node, or subgraph. Default: edge')
     parser.add_argument('--PGD', type=bool, default=False,
                         help='Whether apply PGD attack. Default: false')
     parser.add_argument('--PRBCD', type=bool, default=False,
@@ -83,14 +78,12 @@ def arg_parse():
     parser.add_argument('--seeds_lc', nargs='+', type=int, default=[1,2,3,4,5],
                         help='List of seeds for the classifier initialization. Default: [1,2,3,4,5]') 
     parser.add_argument('--normalize', type=bool, default=False,
-                        help='Whether apply normalized Laplacian. Default: false')
+                        help='Whether apply normalized Laplacian. Default: false')                        
     return parser.parse_args()
 
 if __name__ == '__main__':
     args = arg_parse()
     dataset_name = args.dataset
-    aug_pe = args.ratio
-    aug_type = args.aug
     do_PGD_attack = args.PGD
     do_PRBCD_attack = args.PRBCD
     do_GRBCD_attack = args.GRBCD
@@ -99,7 +92,7 @@ if __name__ == '__main__':
     seeds_lc = args.seeds_lc
     do_normalize = args.normalize
     hid_units = 512
-    print(f'=== On dataset: {dataset_name}, using augmentation type: {aug_type}, ratio: {aug_pe}, normalize: {do_normalize}')
+    print(f'=== On dataset: {dataset_name}, normalize: {do_normalize}')
 
     # load dataset
     device = torch.device('cuda')
@@ -116,143 +109,81 @@ if __name__ == '__main__':
     num_classes = dataset.num_classes
     num_nodes = x.shape[0]
 
-    lbl_1 = torch.ones(num_nodes).unsqueeze(1)
-    lbl_2 = torch.zeros(num_nodes).unsqueeze(1)
-    double_lbl = torch.cat((lbl_1, lbl_2), 1)
-
-    train_set, val_set, test_set = torch.utils.data.random_split(range(num_nodes), [0.8,0,0.2])
+    train_set, val_set, test_set = torch.utils.data.random_split(range(num_nodes), [0.7,0.15,0.15])
     idx_train = torch.tensor(train_set.indices)
     idx_val = torch.tensor(val_set.indices)
     idx_test = torch.tensor(test_set.indices)
-
-    # augmentations
-    augmentor = None
-    if aug_type == 'mask':
-        augmentor = MyFeatureMasking(aug_pe)
-    elif aug_type == 'edge':
-        augmentor = A.EdgeRemoving(aug_pe)
-    elif aug_type == 'subgraph':
-        subgraph_size = int((1 - aug_pe) * num_nodes)
-        augmentor = A.RWSampling(num_seeds=1000, walk_length=subgraph_size)
-    elif aug_type == 'node':
-        augmentor = A.NodeDropping(0.5)
-
-    x1, edge_index1, _ = augmentor(x, edge_index)
-    x2, edge_index2, _ = augmentor(x, edge_index)
-    if do_normalize:
-        edge_index, edge_weight = get_laplacian(edge_index, normalization = 'sym')
-        edge_index1, edge_weight1 = get_laplacian(edge_index1, normalization = 'sym')
-        edge_index2, edge_weight2 = get_laplacian(edge_index2, normalization = 'sym')
-        edge_index, edge_weight = remove_self_loops(edge_index, -edge_weight)
-        edge_index1, edge_weight1 = remove_self_loops(edge_index1, -edge_weight1)
-        edge_index2, edge_weight2 = remove_self_loops(edge_index2, -edge_weight2)
-
-    # model
-    torch.manual_seed(seeds_encoder[0])
-    torch.cuda.manual_seed(seeds_encoder[0])
-    encoder = MyGCN(in_channels=n_features, hidden_channels=hid_units, num_layers=1, act='prelu')
-    summary = AvgReadout()
-    corruption = FeatureShuffle()
-    model = DeepGraphInfomax(hidden_channels=hid_units, 
-                            encoder=encoder,
-                            summary=summary,
-                            corruption=corruption).to(device)
-    optimiser = torch.optim.Adam(model.parameters(), lr=0.001)
 
     # to device
     y = y.to(device)
     x = x.to(device)
     edge_index = edge_index.to(device)
-    x1 = x1.to(device)
-    edge_index1 = edge_index1.to(device)
-    x2 = x2.to(device)
-    edge_index2 = edge_index2.to(device)
     if do_normalize:
+        edge_index, edge_weight = get_laplacian(edge_index, normalization = 'sym')
+        edge_index, edge_weight = remove_self_loops(edge_index, -edge_weight)
         edge_weight = edge_weight.to(device)
-        edge_weight1 = edge_weight1.to(device)
-        edge_weight2 = edge_weight2.to(device)
     else:
         edge_weight = None
-        edge_weight1 = None
-        edge_weight2 = None
 
-    double_lbl = double_lbl.cuda()
     idx_train = idx_train.cuda()
     idx_val = idx_val.cuda()
     idx_test = idx_test.cuda()
 
-    b_xent = nn.BCEWithLogitsLoss()
-    cnt_wait = 0
-    best = 1e9
-    best_t = 0
-    # train
-    with tqdm(total=10000, desc='(T)') as pbar:
-        for epoch in range(10000):
-            model.train()
-
-            pz, nz, _ = model(x, edge_index, edge_weight = edge_weight)
-            _, _, s1 = model(x1, edge_index1, edge_weight = edge_weight1)
-            _, _, s2 = model(x2, edge_index2, edge_weight = edge_weight2)
-
-            double_logits1 = disc(s1, pz, nz, model)
-            double_logits2 = disc(s2, pz, nz, model)
-            double_logits = double_logits1 + double_logits2
-
-            loss = b_xent(double_logits, double_lbl)
-            if loss < best:
-                best = loss
-                best_t = epoch
-                cnt_wait = 0
-                torch.save(model.state_dict(), 'try.pkl')
-            else:
-                cnt_wait += 1
-
-            if cnt_wait == 20:
-                print('Early stopping!')
-                break
-
-            optimiser.zero_grad()
-            loss.backward()
-            optimiser.step()
-
-            pbar.set_postfix({'loss': loss.item()})
-            pbar.update()
-
-    print('Loading {}th epoch'.format(best_t))
-    model.load_state_dict(torch.load('try.pkl'))
-
-    # test the model
-    model.eval()
-    model.requires_grad_(False)
-    z = model.encoder(x, edge_index, edge_weight=edge_weight)
-
-    train_z = z[idx_train]
-    train_y = y[idx_train]
-
     xent = nn.CrossEntropyLoss()
+    
     accs_clean = []
     accs_greedy = []
     accs_PGD = []
     accs_PRBCD = []
     accs_GRBCD = []
-    for _ in tqdm(range(50)): # use 50 linear classifier
+    for run in range(50):
+        print(f'=== starting {run}th run ===')
+        # model
+        encoder = GCN(in_channels=n_features, hidden_channels=hid_units, num_layers=1, act='prelu').to(device)
         log = LogReg(hid_units, num_classes).to(device)
-        opt = torch.optim.Adam(log.parameters(), lr=0.01, weight_decay=0.0)
+        encoder_classifier = GCL_classifier(encoder, log).to(device)
+        optimiser = torch.optim.Adam(encoder_classifier.parameters(), lr=0.01)
 
-        for _ in range(100):
-            log.train()
-            opt.zero_grad()
+        cnt_wait = 0
+        best = 1e9
+        best_t = 0
 
-            logits = log(train_z)
-            loss = xent(logits, train_y)
-            
-            loss.backward()
-            opt.step()
+        # train
+        with tqdm(total=200, desc='(T)') as pbar:
+            for epoch in range(200):
+                encoder_classifier.train()
 
-        encoder_classifier = GCL_classifier(model.encoder, log)
+                logits = encoder_classifier(x, edge_index, edge_weight = edge_weight)
+                loss_train = xent(logits[idx_train], y[idx_train])
+                loss_val = xent(logits[idx_val], y[idx_val])
+
+                if loss_val < best:
+                    best = loss_val
+                    best_t = epoch
+                    cnt_wait = 0
+                    torch.save(encoder_classifier.state_dict(), 'try.pkl')
+                else:
+                    cnt_wait += 1
+
+                if cnt_wait == 10:
+                    print('Early stopping!')
+                    break
+
+                optimiser.zero_grad()
+                loss_train.backward()
+                optimiser.step()
+
+                pbar.set_postfix({'loss_train': loss_train.item(), 'loss_val': loss_val.item()})
+                pbar.update()
+
+        print('Loading {}th epoch'.format(best_t))
+        encoder_classifier.load_state_dict(torch.load('try.pkl'))
+
+        # test the model
         encoder_classifier.eval()
+        # encoder_classifier.requires_grad_(False)
         # ++++++++++ clean ++++++++++++++++
-        acc, _ = eval_encoder(encoder_classifier, y, x, edge_index, edge_weight=edge_weight, idx_test=idx_test, device=device)
+        acc, _ = eval_encoder(encoder_classifier, y, x, edge_index, edge_weight = edge_weight, idx_test=idx_test, device=device)
         accs_clean.append(acc)
 
         # ++++++++++ Greedy ++++++++++++++++
@@ -266,7 +197,7 @@ if __name__ == '__main__':
             updated_edge_index, updated_edge_weight = get_laplacian(updated_edge_index, normalization = 'sym')
             updated_edge_index, updated_edge_weight = remove_self_loops(updated_edge_index, -updated_edge_weight)
 
-        acc_greedy, _ = eval_encoder(encoder_classifier, y, x, updated_edge_index, edge_weight=updated_edge_weight, idx_test=idx_test, device=device)
+        acc_greedy, _ = eval_encoder(encoder_classifier, y, x, updated_edge_index, edge_weight = updated_edge_weight, idx_test=idx_test, device=device)
         accs_greedy.append(acc_greedy)
         # ++++++++++ Greedy over ++++++++++++++++
 
@@ -275,13 +206,13 @@ if __name__ == '__main__':
             PGDattacker = PGDAttack(surrogate=encoder_classifier, device=device, epsilon=1e-4, log=False)
             budget = int(edge_index.shape[1] * attack_ratio)
             _, _, adv_edge_index = PGDattacker.attack_one_graph(x=x, edge_index=edge_index, batch=None, y=y, n_perturbations=budget)
-
+    
             adv_edge_weight = None
             if do_normalize:
                 adv_edge_index, adv_edge_weight = get_laplacian(adv_edge_index, normalization = 'sym')
                 adv_edge_index, adv_edge_weight = remove_self_loops(adv_edge_index, -adv_edge_weight)
-            
-            acc_PGD, _ = eval_encoder(encoder_classifier, y, x, adv_edge_index, edge_weight=adv_edge_weight, idx_test=idx_test, device=device)
+
+            acc_PGD, _ = eval_encoder(encoder_classifier, y, x, adv_edge_index, edge_weight = adv_edge_weight, idx_test=idx_test, device=device)
             accs_PGD.append(acc_PGD)
             # ++++++++++ PGD over ++++++++++++++++
 
@@ -296,7 +227,7 @@ if __name__ == '__main__':
                 adv_edge_index, adv_edge_weight = get_laplacian(adv_edge_index, normalization = 'sym')
                 adv_edge_index, adv_edge_weight = remove_self_loops(adv_edge_index, -adv_edge_weight)
 
-            acc_PRBCD, _ = eval_encoder(encoder_classifier, y, x, adv_edge_index, edge_weight=adv_edge_weight, idx_test=idx_test, device=device)
+            acc_PRBCD, _ = eval_encoder(encoder_classifier, y, x, adv_edge_index, edge_weight = adv_edge_weight, idx_test=idx_test, device=device)
             accs_PRBCD.append(acc_PRBCD)
             # ++++++++++ PRBCD over ++++++++++++++++
 
@@ -311,7 +242,7 @@ if __name__ == '__main__':
                 adv_edge_index, adv_edge_weight = get_laplacian(adv_edge_index, normalization = 'sym')
                 adv_edge_index, adv_edge_weight = remove_self_loops(adv_edge_index, -adv_edge_weight)
 
-            acc_GRBCD, _ = eval_encoder(encoder_classifier, y, x, adv_edge_index, edge_weight=adv_edge_weight, idx_test=idx_test, device=device)
+            acc_GRBCD, _ = eval_encoder(encoder_classifier, y, x, adv_edge_index, edge_weight = adv_edge_weight, idx_test=idx_test, device=device)
             accs_GRBCD.append(acc_GRBCD)
             # ++++++++++ PRBCD over ++++++++++++++++
     
