@@ -1,0 +1,133 @@
+Dataset,model,attack,acc,drop_ratio
+Cora,GCN,clean,0.7084,0
+Cora,GCN,random,0.693,0.0217
+Cora,GCN,GRBCD,0.5166,0.2708
+Cora,GCN,PRBCD,0.6045,0.1467
+CiteSeer,GCN,clean,0.9333,0
+CiteSeer,GCN,random,0.9108,0.0241
+CiteSeer,GCN,GRBCD,0.8983,0.0375
+CiteSeer,GCN,PRBCD,0.8174,0.1242
+PubMed,GCN,clean,0.879,0
+PubMed,GCN,random,0.8543,0.0281
+PubMed,GCN,GRBCD,0.7102,0.192
+PubMed,GCN,PRBCD,0.6848,0.2209
+Cora,GCN(normalized adj),clean,0.7145,0
+Cora,GCN(normalized adj),random,0.706,0.0119
+Cora,GCN(normalized adj),GRBCD,0.6914,0.0323
+Cora,GCN(normalized adj),PRBCD,0.6049,0.1534
+CiteSeer,GCN(normalized adj),clean,0.9148,0
+CiteSeer,GCN(normalized adj),random,0.8989,0.0174
+CiteSeer,GCN(normalized adj),GRBCD,0.9118,0.0033
+CiteSeer,GCN(normalized adj),PRBCD,0.8215,0.102
+PubMed,GCN(normalized adj),clean,0.8839,0
+PubMed,GCN(normalized adj),random,0.8679,0.0181
+PubMed,GCN(normalized adj),GRBCD,0.83,0.061
+PubMed,GCN(normalized adj),PRBCD,0.7914,0.1046
+Cora,GRACE(w/o contrastive part),clean,0.6634,0
+Cora,GRACE(w/o contrastive part),random,0.6176,0.0458
+Cora,GRACE(w/o contrastive part),GRBCD,0.4107,0.2527
+Cora,GRACE(w/o contrastive part),PRBCD,0.3711,0.2923
+CiteSeer,GRACE(w/o contrastive part),clean,0.9579,0
+CiteSeer,GRACE(w/o contrastive part),random,0.9267,0.0312
+CiteSeer,GRACE(w/o contrastive part),GRBCD,0.8807,0.0772
+CiteSeer,GRACE(w/o contrastive part),PRBCD,0.8846,0.0733
+PubMed,GRACE(w/o contrastive part),clean,0.8831,0
+PubMed,GRACE(w/o contrastive part),random,0.8397,0.0434
+PubMed,GRACE(w/o contrastive part),GRBCD,0.6928,0.1903
+PubMed,GRACE(w/o contrastive part),PRBCD,0.708,0.1751
+Cora,DGI,clean,0.6332,0
+Cora,DGI,random,0.6145,0.0295
+Cora,DGI,GRBCD,0.4356,0.3124
+Cora,DGI,PRBCD,0.4924,0.2223
+CiteSeer,DGI,clean,0.8678,0
+CiteSeer,DGI,random,0.8467,0.0243
+CiteSeer,DGI,GRBCD,0.8298,0.055
+CiteSeer,DGI,PRBCD,0.77,0.1126
+PubMed,DGI,clean,0.8717,0
+PubMed,DGI,random,0.8507,0.0593
+PubMed,DGI,GRBCD,0.6985,0.198
+PubMed,DGI,PRBCD,0.6745,0.226
+Cora,GCL(edge dropping),clean,0.6378,0
+Cora,GCL(edge dropping),random,0.6179,0.0312
+Cora,GCL(edge dropping),GRBCD,0.4224,0.3377
+Cora,GCL(edge dropping),PRBCD,0.494,0.2255
+CiteSeer,GCL(edge dropping),clean,0.8877,0
+CiteSeer,GCL(edge dropping),random,0.8658,0.0247
+CiteSeer,GCL(edge dropping),GRBCD,0.8378,0.0562
+CiteSeer,GCL(edge dropping),PRBCD,0.7868,0.1137
+PubMed,GCL(edge dropping),clean,0.8653,0
+PubMed,GCL(edge dropping),random,0.8426,0.0262
+PubMed,GCL(edge dropping),GRBCD,0.7001,0.1909
+PubMed,GCL(edge dropping),PRBCD,0.6735,0.2217
+Cora,GCL(feature masking),clean,0.635,0
+Cora,GCL(feature masking),random,0.6163,0.0294
+Cora,GCL(feature masking),GRBCD,0.425,0.3307
+Cora,GCL(feature masking),PRBCD,0.4871,0.2329
+CiteSeer,GCL(feature masking),clean,0.8627,0
+CiteSeer,GCL(feature masking),random,0.8422,0.0238
+CiteSeer,GCL(feature masking),GRBCD,0.8241,0.0447
+CiteSeer,GCL(feature masking),PRBCD,0.7679,0.1099
+PubMed,GCL(feature masking),clean,0.8775,0
+PubMed,GCL(feature masking),random,0.8545,0.0262
+PubMed,GCL(feature masking),GRBCD,0.6986,0.2038
+PubMed,GCL(feature masking),PRBCD,0.6826,0.2221
+Cora,GCL(node dropping),clean,0.6345,0
+Cora,GCL(node dropping),random,0.6148,0.031
+Cora,GCL(node dropping),GRBCD,0.4325,0.3184
+Cora,GCL(node dropping),PRBCD,0.4939,0.2216
+CiteSeer,GCL(node dropping),clean,0.8815,0
+CiteSeer,GCL(node dropping),random,0.8599,0.0245
+CiteSeer,GCL(node dropping),GRBCD,0.8355,0.0521
+CiteSeer,GCL(node dropping),PRBCD,0.7809,0.1142
+PubMed,GCL(node dropping),clean,0.8752,0
+PubMed,GCL(node dropping),random,0.8523,0.0261
+PubMed,GCL(node dropping),GRBCD,0.705,0.225
+PubMed,GCL(node dropping),PRBCD,0.6783,0.1944
+Cora,GCL(node dropping;normalized adj),clean,0.6151,0
+Cora,GCL(node dropping;normalized adj),random,0.6048,0.0168
+Cora,GCL(node dropping;normalized adj),GRBCD,0.5438,0.1159
+Cora,GCL(node dropping;normalized adj),PRBCD,0.5373,0.1264
+CiteSeer,GCL(node dropping;normalized adj),clean,0.8711,0
+CiteSeer,GCL(node dropping;normalized adj),random,0.8513,0.0165
+CiteSeer,GCL(node dropping;normalized adj),GRBCD,0.8653,0.0024
+CiteSeer,GCL(node dropping;normalized adj),PRBCD,0.8127,0.0578
+PubMed,GCL(node dropping;normalized adj),clean,0.8711,0
+PubMed,GCL(node dropping;normalized adj),random,0.8513,0.0227
+PubMed,GCL(node dropping;normalized adj),GRBCD,0.8653,0.0066
+PubMed,GCL(node dropping;normalized adj),PRBCD,0.8127,0.0671
+Cora,GCA(uniform),clean,0.5872,0
+Cora,GCA(uniform),random,0.5771,0.0101
+Cora,GCA(uniform),GRBCD,0.3691,0.2181
+Cora,GCA(uniform),PRBCD,0.3457,0.2415
+CiteSeer,GCA(uniform),clean,0.8632,0
+CiteSeer,GCA(uniform),random,0.8308,0.0324
+CiteSeer,GCA(uniform),GRBCD,0.7902,0.073
+CiteSeer,GCA(uniform),PRBCD,0.724,0.1392
+PubMed,GCA(uniform),clean,0.8575,0
+PubMed,GCA(uniform),random,0.8188,0.0387
+PubMed,GCA(uniform),GRBCD,0.6841,0.1734
+PubMed,GCA(uniform),PRBCD,0.6401,0.2174
+Cora,GCA(uniform;normalized adj),clean,0.5844,0
+Cora,GCA(uniform;normalized adj),random,0.5811,0.0033
+Cora,GCA(uniform;normalized adj),GRBCD,0.4665,0.1179
+Cora,GCA(uniform;normalized adj),PRBCD,0.4389,0.1455
+CiteSeer,GCA(uniform;normalized adj),clean,0.8433,0
+CiteSeer,GCA(uniform;normalized adj),random,0.8402,0.0031
+CiteSeer,GCA(uniform;normalized adj),GRBCD,0.7872,0.0561
+CiteSeer,GCA(uniform;normalized adj),PRBCD,0.7207,0.1226
+PubMed,GCA(uniform;normalized adj),clean,0.8569,0
+PubMed,GCA(uniform;normalized adj),random,0.8225,0.0344
+PubMed,GCA(uniform;normalized adj),GRBCD,0.7196,0.1373
+PubMed,GCA(uniform;normalized adj),PRBCD,0.6856,0.1713
+Cora,GCA(degree),clean,0.5912,0
+Cora,GCA(degree),random,0.5859,0.0053
+Cora,GCA(degree),GRBCD,0.3729,0.2183
+Cora,GCA(degree),PRBCD,0.353,0.2382
+Cora,GCA(eigenvector centrality),clean,0.5969,0
+Cora,GCA(eigenvector centrality),random,0.5703,0.0266
+Cora,GCA(eigenvector centrality),GRBCD,0.3721,0.2248
+Cora,GCA(eigenvector centrality),PRBCD,0.347,0.2499
+Cora,GCA(page rank),clean,0.5872,0
+Cora,GCA(page rank),random,0.5698,0.0174
+Cora,GCA(page rank),GRBCD,0.3485,0.2387
+Cora,GCA(page rank),PRBCD,0.3262,0.2436
