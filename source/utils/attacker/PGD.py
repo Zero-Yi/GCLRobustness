@@ -19,7 +19,7 @@ import torch_geometric
 from torch_geometric.loader import DataLoader
 from torch_geometric.data import Data
 
-from attacker import utils
+from . import utils
 
 class PGDAttack():
     """PGD attack for graph data.

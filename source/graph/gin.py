@@ -18,16 +18,18 @@ from tqdm import tqdm
 import itertools
 import warnings
 import sys
+sys.path.append("..")
 from sklearn.model_selection import StratifiedKFold
 import numpy as np
 import os.path as osp
 import argparse
+import random
 
-from attacker.greedy import Greedy
-from attacker.PGD import PGDAttack
-from attacker.PRBCD import MyPRBCDAttack
-from attacker.GRBCD import MyGRBCDAttack
-from layer.wgin_conv import WGINConv
+from utils.attacker.greedy import Greedy
+from utils.attacker.PGD import PGDAttack
+from utils.attacker.PRBCD import MyPRBCDAttack
+from utils.attacker.GRBCD import MyGRBCDAttack
+from utils.layer.wgin_conv import WGINConv
 import os
 
 def setup_seed(seed):
@@ -435,17 +437,17 @@ if __name__ == '__main__':
 
         torch.cuda.empty_cache() # Try to save memory
         
-        accs_clean = torch.stack(accs_clean)
-        accs_adv_greedy = torch.stack(accs_adv_greedy)
-        print(f'(A): clean average accuracy={accs_clean.mean():.4f}, std={accs_clean.std():.4f}')
-        print(f'(A): greedy adversarial average accuracy={accs_adv_greedy.mean():.4f}, std={accs_adv_greedy.std():.4f}')
-        if do_PGD_attack == True:
-            accs_adv_PGD = torch.stack(accs_adv_PGD)
-            print(f'(A): PGD adversarial average accuracy={accs_adv_PGD.mean():.4f}, std={accs_adv_PGD.std():.4f}')
-        if do_PRBCD_attack == True:
-            accs_adv_PRBCD = torch.stack(accs_adv_PRBCD)
-            print(f'(A): PRBCD adversarial average accuracy={accs_adv_PRBCD.mean():.4f}, std={accs_adv_PRBCD.std():.4f}')
-        if do_GRBCD_attack == True:
-            accs_adv_GRBCD = torch.stack(accs_adv_GRBCD)
-            print(f'(A): GRBCD adversarial average accuracy={accs_adv_GRBCD.mean():.4f}, std={accs_adv_GRBCD.std():.4f}')
+    accs_clean = torch.stack(accs_clean)
+    accs_adv_greedy = torch.stack(accs_adv_greedy)
+    print(f'(A): clean average accuracy={accs_clean.mean():.4f}, std={accs_clean.std():.4f}')
+    print(f'(A): greedy adversarial average accuracy={accs_adv_greedy.mean():.4f}, std={accs_adv_greedy.std():.4f}')
+    if do_PGD_attack == True:
+        accs_adv_PGD = torch.stack(accs_adv_PGD)
+        print(f'(A): PGD adversarial average accuracy={accs_adv_PGD.mean():.4f}, std={accs_adv_PGD.std():.4f}')
+    if do_PRBCD_attack == True:
+        accs_adv_PRBCD = torch.stack(accs_adv_PRBCD)
+        print(f'(A): PRBCD adversarial average accuracy={accs_adv_PRBCD.mean():.4f}, std={accs_adv_PRBCD.std():.4f}')
+    if do_GRBCD_attack == True:
+        accs_adv_GRBCD = torch.stack(accs_adv_GRBCD)
+        print(f'(A): GRBCD adversarial average accuracy={accs_adv_GRBCD.mean():.4f}, std={accs_adv_GRBCD.std():.4f}')
 

@@ -13,15 +13,17 @@ from tqdm import tqdm
 
 import GCL.augmentors as A
 import copy
+import sys
+sys.path.append("..")
 
-from aug.my_feature_masking import MyFeatureMasking
-from layer.readout import AvgReadout
-from layer.corrupt import FeatureShuffle
-from gin import LogReg
-from attacker.greedy import Greedy
-from attacker.PGD import PGDAttack
-from MyGCL import train_classifier
-from layer.MyGCN import MyGCN
+from utils.aug.my_feature_masking import MyFeatureMasking
+from utils.layer.readout import AvgReadout
+from utils.layer.corrupt import FeatureShuffle
+from utils.attacker.greedy import Greedy
+from utils.attacker.PGD import PGDAttack
+from utils.layer.MyGCN import MyGCN
+from graph.gin import LogReg
+from graph.gcl import train_classifier
 
 def disc(summary_aug, pos, neg, DGI):
     pos_logits = DGI.discriminate(z = pos, summary = summary_aug, sigmoid = False)
@@ -63,7 +65,7 @@ def eval_encoder(model, y, x, edge_index, edge_weight=None, idx_test=None, devic
     return accuracy, correct_mask
 
 def arg_parse():
-    parser = argparse.ArgumentParser(description='dgi.py')
+    parser = argparse.ArgumentParser(description='gcl_node.py')
     parser.add_argument('--dataset', type=str, default='Cora',
                         help='Dataset')
     parser.add_argument('--ratio', type=float, default='0.1',

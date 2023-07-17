@@ -18,19 +18,20 @@ from tqdm import tqdm
 import itertools
 import warnings
 import sys
+sys.path.append("..")
 from sklearn.model_selection import StratifiedKFold
 import numpy as np
 import os.path as osp
 import argparse
 import random
 
-from attacker.greedy import Greedy
-from attacker.PGD import PGDAttack
-from attacker.PRBCD import MyPRBCDAttack
-from attacker.GRBCD import MyGRBCDAttack
-from layer.wgin_conv import WGINConv
+from utils.attacker.greedy import Greedy
+from utils.attacker.PGD import PGDAttack
+from utils.attacker.PRBCD import MyPRBCDAttack
+from utils.attacker.GRBCD import MyGRBCDAttack
+from utils.layer.wgin_conv import WGINConv
 
-from gin import GIN, LogReg, GCL_classifier, eval_encoder
+from graph.gin import GIN, LogReg, GCL_classifier, eval_encoder
 
 def setup_seed(seed):
     torch.manual_seed(seed)
