@@ -168,7 +168,7 @@ def main(dataset_name):
 
 
 if __name__ == '__main__':
-    datasets = ['REDDIT-MULTI-5K', 'PROTEINS', 'REDDIT-BINARY', 'NCI1', 'DD']
+    datasets = ['PROTEINS','NCI1', 'DD','REDDIT-MULTI-5K', 'REDDIT-BINARY']
     for dataset in datasets:
         accs = []
         att_accs=[]
