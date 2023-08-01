@@ -166,17 +166,22 @@ def main(dataset_name):
     att_acc = random_attack(encoder_model, clf, correctly_classified_indices, x_test, y_test, dataloader)
     return accuracy, att_acc
 
+def arg_parse():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, default='PROTEINS',
+                        help='Dataset')  
+    return parser.parse_args()
 
 if __name__ == '__main__':
-    datasets = ['PROTEINS','NCI1', 'DD','REDDIT-MULTI-5K', 'REDDIT-BINARY']
-    for dataset in datasets:
-        accs = []
-        att_accs=[]
-        for _ in range(7):
-            acc, att_acc = main(dataset)
-            accs.append(acc)
-            att_accs.append(att_acc)
-        df = pd.DataFrame(np.array([accs, att_accs]).T, columns = ['accuracy', 'attack_accuracy'])
+    args = arg_parse()
+    dataset_name = args.dataset
+    accs = []
+    att_accs=[]
+    for _ in range(7):
+        acc, att_acc = main(dataset_name)
+        accs.append(acc)
+        att_accs.append(att_acc)
+    df = pd.DataFrame(np.array([accs, att_accs]).T, columns = ['accuracy', 'attack_accuracy'])
         df.to_csv(dataset)
         print(df.mean(axis=0))
         print(df.std(axis=0))
