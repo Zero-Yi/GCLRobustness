@@ -44,7 +44,7 @@ class PGDAttack():
         self.nnodes = None
 
         self.complementary = None
-        self.direction = None    
+        self.direction = None
 
         self.surrogate = surrogate
         self.device = device
@@ -261,3 +261,87 @@ class PGDAttack():
         diag = adj.diag()
         assert diag.max() == 0, "Diagonal should be 0!"
         assert diag.min() == 0, "Diagonal should be 0!"
+
+class FeaturePGDAttack(PGDAttack):
+    def attack(self, eval_set, mask=None, batch_size=128, attack_ratio=0.05, lr = 0.001): # Check if there exist node features. If not, raise error. And also, it is assumed that the features are continuous.
+        '''
+        Params:
+            eval_set: the clean evaluation dataset, NOT dataloader
+            mask: to indicate the graphs to attack
+            batch_size: batch size of returned dataloader
+            attack_ratio: budget measuring in the F norm of the original feature matrix
+        Return:
+            dataloader_eval_adv: the adversarial evaluation dataloader, which consists of adversarial samples only
+        '''
+        assert eval_set[0].x is not None, "Cannot apply feature attack on graphs without node features"
+
+        if mask==None: # by default using all samples
+            mask = torch.ones(len(eval_set)).bool
+
+        eval_set_adv = [data for data, mask_value in zip(eval_set, mask) if mask_value] # only pick out the data indicated by mask==True
+
+        adv_datalist_eval = []
+        if self.log == True:
+            for one_graph in tqdm(eval_set_adv):
+                one_graph.to(self.device)
+
+                adv_x = self.attack_one_graph(one_graph.x, one_graph.edge_index, one_graph.batch, one_graph.y, attack_ratio, lr = lr)
+                new_graph = Data(edge_index=one_graph.edge_index, x=adv_x, y=one_graph.y)
+                adv_datalist_eval.append(new_graph)
+        else:
+            for one_graph in eval_set_adv:
+                one_graph.to(self.device)
+
+                adv_x = self.attack_one_graph(one_graph.x, one_graph.edge_index, one_graph.batch, one_graph.y, attack_ratio, lr = lr)
+                new_graph = Data(edge_index=one_graph.edge_index, x=adv_x, y=one_graph.y)
+                adv_datalist_eval.append(new_graph)
+
+        dataloader_eval_adv = DataLoader(adv_datalist_eval, batch_size=128)
+
+        return dataloader_eval_adv
+
+    def attack_one_graph(self, x, edge_index, batch, y, attack_ratio, epochs=200, lr = 0.001):
+        """Generate feature perturbation on the input graph.
+
+        Parameters
+        ----------
+        x :
+            Original (unperturbed) node feature matrix
+        edge_index :
+            Original (unperturbed) edge_index
+        y :
+            graph label
+        attack_ratio : float
+            budget measuring in the F norm of the original feature matrix
+        epochs:
+            number of training epochs
+
+        Returns
+        ----------
+        adv_x:
+            x of the perturbed graph
+        """
+
+        victim_model = self.surrogate
+        victim_model.eval()
+        victim_model.requires_grad_(False)
+
+        adv_x = torch.clone(x)
+        adv_x.requires_grad = True
+
+        opt = torch.optim.Adam(params = [adv_x], lr = lr)
+
+        for t in range(epochs):
+            opt.zero_grad()
+            logit = victim_model(adv_x, edge_index, batch=batch)
+            loss = F.cross_entropy(logit, y)
+
+            loss.backward() # Calculate the gradient
+            opt.step() # Update the input feature
+        
+        epsilon_radius = torch.linalg.matrix_norm(x) * attack_ratio
+        if torch.linalg.matrix_norm(adv_x - x) > epsilon_radius:
+            # The adversarial sample lies out of the epsilon-ball
+            adv_x = x + (adv_x - x) / torch.linalg.matrix_norm(adv_x - x) * epsilon_radius
+
+        return adv_x
