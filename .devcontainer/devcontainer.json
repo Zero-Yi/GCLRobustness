@@ -1,0 +1,25 @@
+{
+    "name": "MyGCL",
+    "build": {
+        "dockerfile": "../Dockerfile",
+        "context": ".."
+    },
+
+    "runArgs": [
+        "--network", "host"
+    ],
+    "mounts": [
+        "source=${env:HOME}/.ssh,target=/root/.ssh,type=bind,consistency=cached"
+    ],
+    "extensions": [
+        "ms-python.python",
+        "ms-toolsai.jupyter",
+        "ms-vscode-remote.remote-containers",
+        {
+            "customizations/vscode/settings": {
+                "terminal.integrated.defaultProfile.linux": "/bin/bash"
+            }
+        }
+    ],
+    "remoteUser": "root"
+}
