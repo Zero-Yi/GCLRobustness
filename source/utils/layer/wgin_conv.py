@@ -32,7 +32,7 @@ class WGINConv(MessagePassing):
 		if isinstance(x, Tensor):
 			x: OptPairTensor = (x, x)
 
-		# propagate_type: (x: OptPairTensor)
+		# propagate_type: (x: OptPairTensor, edge_weight: Tensor)
 		out = self.propagate(edge_index, x=x, edge_weight=edge_weight, size=size)
 
 		x_r = x[1]

@@ -6,7 +6,8 @@
     },
 
     "runArgs": [
-        "--network", "host"
+        "--network", "host",
+        "--gpus", "all"
     ],
     "mounts": [
         "source=${env:HOME}/.ssh,target=/root/.ssh,type=bind,consistency=cached"

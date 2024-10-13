@@ -53,3 +53,7 @@ RUN python3 -c "import torch; print(torch.cuda.is_available())" \
 
 # The image will launch with bash
 CMD ["/bin/bash"]
+
+RUN ln -s /usr/bin/python3 /usr/bin/python
+# Numpy need to be downgraded
+RUN pip install numpy==1.24.0 
