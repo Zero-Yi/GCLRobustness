@@ -329,9 +329,9 @@ if __name__ == '__main__':
         
         list_encoders.append({'accs_clean': accs_clean.mean(), 
                                     'accs_adv_greedy': accs_adv_greedy.mean(),
-                                    # 'accs_adv_PGD': accs_adv_PGD.mean(),
-                                    'accs_adv_PRBCD': accs_adv_PRBCD.mean(),
-                                    'accs_adv_GRBCD': accs_adv_GRBCD.mean()})
+                                    'accs_adv_PGD': accs_adv_PGD.mean() if do_PGD_attack else None,
+                                    'accs_adv_PRBCD': accs_adv_PRBCD.mean() if do_PRBCD_attack else None,
+                                    'accs_adv_GRBCD': accs_adv_GRBCD.mean() if do_GRBCD_attack else None})
         print(f'==== Trial with encoder seed {seed_encoder} finished. ====')
     
     for i in range(len(seeds_encoder)):

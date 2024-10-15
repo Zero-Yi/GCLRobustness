@@ -18,7 +18,7 @@ from tqdm import tqdm
 import itertools
 import warnings
 import sys
-sys.path.append("..")
+sys.path.append("/workspaces/mygcl/source")
 from sklearn.model_selection import StratifiedKFold
 import numpy as np
 import os.path as osp

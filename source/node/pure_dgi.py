@@ -12,13 +12,15 @@ from tqdm import tqdm
 
 import GCL.augmentors as A
 import copy
+import sys
+sys.path.append("..")
 
-from aug.my_feature_masking import MyFeatureMasking
-from layer.readout import AvgReadout
-from layer.corrupt import FeatureShuffle
-from gin import LogReg, eval_encoder
-from attacker.greedy import Greedy
-from attacker.PGD import PGDAttack
+from utils.aug.my_feature_masking import MyFeatureMasking
+from utils.layer.readout import AvgReadout
+from utils.layer.corrupt import FeatureShuffle
+from graph.gin import LogReg, eval_encoder
+from utils.attacker.greedy import Greedy
+from utils.attacker.PGD import PGDAttack
 
 def disc(summary_aug, pos, neg, DGI):
     pos_logits = DGI.discriminate(z = pos, summary = summary_aug, sigmoid = False)
@@ -150,8 +152,8 @@ if __name__ == '__main__':
     best = 1e9
     best_t = 0
     # train
-    with tqdm(total=10000, desc='(T)') as pbar:
-        for epoch in range(10000):
+    with tqdm(total=2, desc='(T)') as pbar:
+        for epoch in range(2):
             model.train()
 
             pz, nz, s = model(x, edge_index)
@@ -195,11 +197,11 @@ if __name__ == '__main__':
     accs_PGD = []
     accs_PRBCD = []
     accs_GRBCD = []
-    for _ in tqdm(range(50)): # use 50 linear classifier
+    for _ in tqdm(range(2)): # use 50 linear classifier
         log = LogReg(hid_units, num_classes).to(device)
         opt = torch.optim.Adam(log.parameters(), lr=0.01, weight_decay=0.0)
 
-        for _ in range(100):
+        for _ in range(2):
             log.train()
             opt.zero_grad()
 

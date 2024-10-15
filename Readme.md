@@ -1,22 +1,38 @@
 # Introduce
 
-This is the repository of Group 2: Adversarial Attacks against Graph Neural Networks in the context of Graph Contrastive Learning. It is a part from the lab course Large-scale Machine Learning 23SS.
+This is the repository of the project: Adversarial Attacks against Graph Neural Networks in the context of Graph Contrastive Learning.
 
-# Hierarchy
+# Usage
+## Setup
+It is recommended to run the docker container in VScode. The configuration can be adjusted via `.devcontainer/devcontainer.json`.
+
+Install the official extension `Dev Containers`, then press `Ctrl+Shift+P` and type “Dev Container: Rebuild and Reopen in Container” to build image and launch the container.
+
+## Hierarchy
 - source
     - node
         - gcl_node.py # GCL in node classification
         - gcn.py # plain counterpart to gcl_node.py
+        - pure_dgi.py # DGI in node claasification
     - graph
+        - adgcl.py # AD-GCL in graph classification
         - gcl.py # GCL in graph classification
         - gin.py # plain counterpart to gcl.py
+        - Infograph.py # Infograph in graph classification
     - utils
-- misc
 - Readme.md
+- Dockerfile
+- ...
 
-# Running instructions:
-## gcl_node.py, gcn.py, gcl.py, gin.py
-Please use ```-h``` to see instructions. For example:
+## Running the codes:
+To launch a script, first **navigate to the corresponding sub-directory**, e.g., from the root directory, run
+```bash
+cd source/graph/
+python gcl.py
 ```
+if you want to run the evaluation of the model GCL in graph classification.
+
+Please use `-h` to see further instructions. For example:
+```bash
 python gcl.py -h
 ```

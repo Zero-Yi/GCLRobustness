@@ -138,7 +138,7 @@ if __name__ == '__main__':
     accs_PGD = []
     accs_PRBCD = []
     accs_GRBCD = []
-    for run in range(50):
+    for run in range(2):
         print(f'=== starting {run}th run ===')
         # model
         encoder = GCN(in_channels=n_features, hidden_channels=hid_units, num_layers=1, act='prelu').to(device)
@@ -151,7 +151,7 @@ if __name__ == '__main__':
         best_t = 0
 
         # train
-        with tqdm(total=200, desc='(T)') as pbar:
+        with tqdm(total=2, desc='(T)') as pbar:
             for epoch in range(200):
                 encoder_classifier.train()
 

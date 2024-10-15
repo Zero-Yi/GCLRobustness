@@ -188,8 +188,8 @@ if __name__ == '__main__':
     best = 1e9
     best_t = 0
     # train
-    with tqdm(total=10000, desc='(T)') as pbar:
-        for epoch in range(10000):
+    with tqdm(total=2, desc='(T)') as pbar:
+        for epoch in range(2):
             model.train()
 
             pz, nz, _ = model(x, edge_index, edge_weight = edge_weight)
@@ -237,11 +237,11 @@ if __name__ == '__main__':
     accs_PGD = []
     accs_PRBCD = []
     accs_GRBCD = []
-    for _ in tqdm(range(50)): # use 50 linear classifier
+    for _ in tqdm(range(2)): # use 50 linear classifier
         log = LogReg(hid_units, num_classes).to(device)
         opt = torch.optim.Adam(log.parameters(), lr=0.01, weight_decay=0.0)
 
-        for _ in range(100):
+        for _ in range(2):
             log.train()
             opt.zero_grad()
 
