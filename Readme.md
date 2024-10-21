@@ -1,6 +1,7 @@
 # Introduce
 
-This is the repository of the project: Adversarial Attacks against Graph Neural Networks in the context of Graph Contrastive Learning.
+This is one part of the project: Adversarial Attacks against Graph Neural Networks in the context of Graph Contrastive Learning.
+Check the [paper](https://arxiv.org/abs/2311.17853) for further details. 
 
 # Usage
 ## Setup
